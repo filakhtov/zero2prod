@@ -15,6 +15,15 @@ pub struct DatabaseSettings {
     pub database_name: String,
 }
 
+impl DatabaseSettings {
+    pub fn connection_dsn(&self) -> String {
+        format!(
+            "mysql://{}:{}@{}:{}/{}",
+            self.username, self.password, self.host, self.port, self.database_name
+        )
+    }
+}
+
 pub fn get_configuration(path: &str) -> Result<Settings, ConfigError> {
     let settings = Config::builder()
         .add_source(File::new(path, FileFormat::Yaml))

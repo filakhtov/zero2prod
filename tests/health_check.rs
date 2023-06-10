@@ -1,5 +1,7 @@
 use reqwest::{Client, StatusCode};
+use sqlx::{Connection, MySqlConnection};
 use std::net::TcpListener;
+use zero2prod::configuration::get_configuration;
 
 fn spawn_app() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to the random port");
@@ -30,6 +32,10 @@ async fn health_check_responds_with_204_and_no_content() {
 #[tokio::test]
 async fn subscribe_responds_with_200_for_valid_form_data() {
     let address = spawn_app();
+    let configuration = get_configuration("test.yaml").expect("Failed to read test configuration");
+    let db_connection = MySqlConnection::connect(&configuration.database.connection_dsn())
+        .await
+        .expect("Failed to connect to the test database");
     let client = Client::new();
 
     let body = "name=john%20doe&email=john.doe%40example.com";
