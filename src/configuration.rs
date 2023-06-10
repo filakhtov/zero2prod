@@ -16,10 +16,14 @@ pub struct DatabaseSettings {
 }
 
 impl DatabaseSettings {
+    pub fn database_dsn(&self) -> String {
+        format!("{}/{}", self.connection_dsn(), self.database_name)
+    }
+
     pub fn connection_dsn(&self) -> String {
         format!(
-            "mysql://{}:{}@{}:{}/{}",
-            self.username, self.password, self.host, self.port, self.database_name
+            "mysql://{}:{}@{}:{}",
+            self.username, self.password, self.host, self.port,
         )
     }
 }
