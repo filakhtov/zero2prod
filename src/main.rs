@@ -1,7 +1,23 @@
 use std::net::TcpListener;
-use zero2prod::startup::run;
+use zero2prod::{configuration::get_configuration, startup::run};
+
+fn get_configuration_path() -> String {
+    let args: Vec<String> = std::env::args().collect();
+
+    match args.get(1) {
+        Some(path) => path.to_owned(),
+        None => {
+            eprint!("usage: {} <configuration_file>", args[0]);
+            std::process::exit(1);
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    run(TcpListener::bind("127.0.0.1:8000")?)?.await
+    let configuration = get_configuration(&get_configuration_path())
+        .expect("Failed to read the `{}` configuration file");
+    let address = format!("127.0.0.1:{}", configuration.application_port);
+    let listener = TcpListener::bind(address)?;
+    run(listener)?.await
 }
