@@ -1,6 +1,7 @@
 use actix_web::{web, HttpResponse, Responder};
 use chrono::Utc;
 use sqlx::MySqlPool;
+use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
@@ -15,12 +16,17 @@ pub async fn subscribe(
 ) -> impl Responder {
     let request_id = Uuid::new_v4();
 
-    log::info!(
-        "{} Adding {} <{}> as a new subscriber",
-        request_id,
-        form.name,
-        form.email
+    let request_span = tracing::info_span!(
+        "Adding a new subscriber",
+        %request_id,
+        subscriber_email = %form.email,
+        subscriber_name = %form.name,
     );
+    let _request_span_guard = request_span.enter();
+
+    tracing::info!("Adding a new subscriber");
+
+    let query_span = tracing::info_span!("Persisting a new subscriber");
 
     match sqlx::query!(
         r#"
@@ -33,14 +39,15 @@ pub async fn subscribe(
         Utc::now(),
     )
     .execute(db_connection.get_ref())
+    .instrument(query_span)
     .await
     {
         Ok(_) => {
-            log::info!("{} new subscriber details have been saved", request_id);
+            tracing::info!("{} new subscriber details have been saved", request_id);
             HttpResponse::Ok()
         }
         Err(e) => {
-            log::error!("{} failed to execute the query: {:?}", e, request_id);
+            tracing::error!("{} failed to execute the query: {:?}", e, request_id);
             HttpResponse::InternalServerError()
         }
     }
