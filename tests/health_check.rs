@@ -1,12 +1,34 @@
 use reqwest::{Client, StatusCode};
-use sqlx::{Executor, MySqlPool};
+use sqlx::{Connection, Executor, MySqlConnection, MySqlPool};
 use std::net::TcpListener;
 use uuid::Uuid;
 use zero2prod::configuration::{get_configuration, DatabaseSettings};
 
 pub struct TestApp {
-    pub address: String,
-    pub db_pool: MySqlPool,
+    address: String,
+    db_pool: MySqlPool,
+}
+
+async fn create_database(db_settings: &DatabaseSettings) {
+    let mut db_connection = MySqlConnection::connect(&db_settings.connection_dsn())
+        .await
+        .expect("Failed to connect to the database");
+    db_connection
+        .execute(format!(r#"CREATE DATABASE `{}`;"#, db_settings.database_name).as_str())
+        .await
+        .expect("Failed to create database");
+}
+
+async fn migrate_database(db_settings: &DatabaseSettings) -> MySqlPool {
+    let db_pool = MySqlPool::connect(&db_settings.database_dsn())
+        .await
+        .expect("Failed to connect to the database");
+    sqlx::migrate!("./migrations")
+        .run(&db_pool)
+        .await
+        .expect("Failed to run migrations");
+
+    db_pool
 }
 
 async fn spawn_app() -> TestApp {
@@ -18,9 +40,10 @@ async fn spawn_app() -> TestApp {
     configuration.database.database_name = format!(
         "{}_{}",
         configuration.database.database_name,
-        Uuid::new_v4(),
+        Uuid::new_v4().as_simple(),
     );
-    let db_pool = configure_database(&configuration.database).await;
+    create_database(&configuration.database).await;
+    let db_pool = migrate_database(&configuration.database).await;
 
     let server = zero2prod::startup::run(listener, db_pool.clone()).expect("Failed to run the app");
     let _ = tokio::spawn(server);
@@ -28,26 +51,6 @@ async fn spawn_app() -> TestApp {
     let address = format!("http://127.0.0.1:{}", port);
 
     TestApp { address, db_pool }
-}
-
-async fn configure_database(db_settings: &DatabaseSettings) -> MySqlPool {
-    let db_pool = MySqlPool::connect(&db_settings.connection_dsn())
-        .await
-        .expect("Failed to connect to the database");
-    db_pool
-        .execute(format!(r#"CREATE DATABASE `{}`;"#, db_settings.database_name).as_str())
-        .await
-        .expect("Failed to create database");
-
-    let db_pool = MySqlPool::connect(&db_settings.database_dsn())
-        .await
-        .expect("Failed to connect to the database");
-    sqlx::migrate!("./migrations")
-        .run(&db_pool)
-        .await
-        .expect("Failed to run migrations");
-
-    db_pool
 }
 
 #[tokio::test]

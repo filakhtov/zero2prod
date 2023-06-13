@@ -13,6 +13,8 @@ pub async fn subscribe(
     form: web::Form<FormData>,
     db_connection: web::Data<MySqlPool>,
 ) -> impl Responder {
+    log::info!("Adding {} <{}> as a new subscriber", form.name, form.email);
+
     match sqlx::query!(
         r#"
         INSERT INTO `subscriptions` (`id`, `email`, `name`, `subscribed_at`)
@@ -26,9 +28,12 @@ pub async fn subscribe(
     .execute(db_connection.get_ref())
     .await
     {
-        Ok(_) => HttpResponse::Ok(),
+        Ok(_) => {
+            log::info!("New subscriber details have been saved");
+            HttpResponse::Ok()
+        }
         Err(e) => {
-            println!("Failed to execute the query: {}", e);
+            log::error!("Failed to execute the query: {:?}", e);
             HttpResponse::InternalServerError()
         }
     }

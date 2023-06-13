@@ -1,3 +1,4 @@
+use env_logger::Env;
 use sqlx::MySqlPool;
 use std::net::TcpListener;
 use zero2prod::{configuration::get_configuration, startup::run};
@@ -8,7 +9,7 @@ fn get_configuration_path() -> String {
     match args.get(1) {
         Some(path) => path.to_owned(),
         None => {
-            eprint!("usage: {} <configuration_file>", args[0]);
+            eprintln!("usage: {} <configuration_file>", args[0]);
             std::process::exit(1);
         }
     }
@@ -16,6 +17,8 @@ fn get_configuration_path() -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
     let configuration = get_configuration(&get_configuration_path())
         .expect("Failed to read the `{}` configuration file");
     let db_connection_pool = MySqlPool::connect(&configuration.database.database_dsn())
