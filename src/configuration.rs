@@ -45,6 +45,11 @@ impl DatabaseSettings {
 pub fn get_configuration(path: &str) -> Result<Settings, ConfigError> {
     let settings = Config::builder()
         .add_source(File::new(path, FileFormat::Yaml))
+        .add_source(
+            config::Environment::with_prefix("ZERO2PROD")
+                .prefix_separator("_")
+                .separator("__"),
+        )
         .build()?;
 
     settings.try_deserialize()
