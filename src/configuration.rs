@@ -1,6 +1,7 @@
 use config::{Config, ConfigError, File, FileFormat};
 use secrecy::{ExposeSecret, Secret};
-use sqlx::mysql::MySqlConnectOptions;
+use sqlx::{mysql::MySqlConnectOptions, ConnectOptions};
+use tracing::log::LevelFilter;
 
 #[derive(serde::Deserialize)]
 pub struct Settings {
@@ -25,11 +26,13 @@ pub struct ApplicationSettings {
 
 impl DatabaseSettings {
     pub fn without_db(&self) -> MySqlConnectOptions {
-        MySqlConnectOptions::new()
+        let mut options = MySqlConnectOptions::new()
             .host(&self.host)
             .port(self.port)
             .username(&self.username)
-            .password(&self.password.expose_secret())
+            .password(&self.password.expose_secret());
+        options.log_statements(LevelFilter::Trace);
+        options
     }
 
     pub fn with_db(&self) -> MySqlConnectOptions {

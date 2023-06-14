@@ -1,5 +1,4 @@
 use reqwest::{Client, StatusCode};
-use secrecy::ExposeSecret;
 use sqlx::{Executor, MySqlPool};
 use std::net::TcpListener;
 use tokio::sync::OnceCell;
