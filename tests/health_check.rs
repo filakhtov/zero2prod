@@ -1,4 +1,5 @@
 use reqwest::{Client, StatusCode};
+use secrecy::ExposeSecret;
 use sqlx::{Connection, Executor, MySqlConnection, MySqlPool};
 use std::net::TcpListener;
 use tokio::sync::OnceCell;
@@ -14,7 +15,7 @@ pub struct TestApp {
 }
 
 async fn cleanup_database(db_settings: &DatabaseSettings) {
-    let mut db_connection = MySqlConnection::connect(&db_settings.connection_dsn())
+    let mut db_connection = MySqlConnection::connect(&db_settings.connection_dsn().expose_secret())
         .await
         .expect("Failed to connect to the database");
     let rows = sqlx::query!(
@@ -37,7 +38,7 @@ async fn cleanup_database(db_settings: &DatabaseSettings) {
 }
 
 async fn create_database(db_settings: &DatabaseSettings) {
-    let mut db_connection = MySqlConnection::connect(&db_settings.connection_dsn())
+    let mut db_connection = MySqlConnection::connect(&db_settings.connection_dsn().expose_secret())
         .await
         .expect("Failed to connect to the database");
     db_connection
@@ -47,7 +48,7 @@ async fn create_database(db_settings: &DatabaseSettings) {
 }
 
 async fn migrate_database(db_settings: &DatabaseSettings) -> MySqlPool {
-    let db_pool = MySqlPool::connect(&db_settings.database_dsn())
+    let db_pool = MySqlPool::connect(&db_settings.database_dsn().expose_secret())
         .await
         .expect("Failed to connect to the database");
     sqlx::migrate!("./migrations")
