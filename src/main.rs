@@ -1,4 +1,3 @@
-use secrecy::ExposeSecret;
 use sqlx::mysql::MySqlPoolOptions;
 use std::{net::TcpListener, time::Duration};
 use zero2prod::{
@@ -28,8 +27,7 @@ async fn main() -> Result<(), std::io::Error> {
         .expect("Failed to read the `{}` configuration file");
     let db_connection_pool = MySqlPoolOptions::new()
         .acquire_timeout(Duration::from_secs(2))
-        .connect_lazy(&configuration.database.database_dsn().expose_secret())
-        .expect("Failed to create a MySQL connection pool");
+        .connect_lazy_with(configuration.database.with_db());
     let address = format!(
         "{}:{}",
         configuration.application.host, configuration.application.port

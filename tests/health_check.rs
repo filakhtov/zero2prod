@@ -1,6 +1,6 @@
 use reqwest::{Client, StatusCode};
 use secrecy::ExposeSecret;
-use sqlx::{Connection, Executor, MySqlConnection, MySqlPool};
+use sqlx::{Executor, MySqlPool};
 use std::net::TcpListener;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
@@ -15,7 +15,7 @@ pub struct TestApp {
 }
 
 async fn cleanup_database(db_settings: &DatabaseSettings) {
-    let mut db_connection = MySqlConnection::connect(&db_settings.connection_dsn().expose_secret())
+    let db_connection = MySqlPool::connect_with(db_settings.without_db())
         .await
         .expect("Failed to connect to the database");
     let rows = sqlx::query!(
@@ -25,7 +25,7 @@ async fn cleanup_database(db_settings: &DatabaseSettings) {
         WHERE `table_schema` LIKE 'newsletter_%'
         "#
     )
-    .fetch_all(&mut db_connection)
+    .fetch_all(&db_connection)
     .await
     .expect("Failed to select previous test database schemas");
 
@@ -38,7 +38,7 @@ async fn cleanup_database(db_settings: &DatabaseSettings) {
 }
 
 async fn create_database(db_settings: &DatabaseSettings) {
-    let mut db_connection = MySqlConnection::connect(&db_settings.connection_dsn().expose_secret())
+    let db_connection = MySqlPool::connect_with(db_settings.without_db())
         .await
         .expect("Failed to connect to the database");
     db_connection
@@ -48,7 +48,7 @@ async fn create_database(db_settings: &DatabaseSettings) {
 }
 
 async fn migrate_database(db_settings: &DatabaseSettings) -> MySqlPool {
-    let db_pool = MySqlPool::connect(&db_settings.database_dsn().expose_secret())
+    let db_pool = MySqlPool::connect_with(db_settings.with_db())
         .await
         .expect("Failed to connect to the database");
     sqlx::migrate!("./migrations")

@@ -1,5 +1,6 @@
 use config::{Config, ConfigError, File, FileFormat};
 use secrecy::{ExposeSecret, Secret};
+use sqlx::mysql::MySqlConnectOptions;
 
 #[derive(serde::Deserialize)]
 pub struct Settings {
@@ -23,22 +24,16 @@ pub struct ApplicationSettings {
 }
 
 impl DatabaseSettings {
-    pub fn database_dsn(&self) -> Secret<String> {
-        Secret::new(format!(
-            "{}/{}",
-            self.connection_dsn().expose_secret(),
-            self.database_name
-        ))
+    pub fn without_db(&self) -> MySqlConnectOptions {
+        MySqlConnectOptions::new()
+            .host(&self.host)
+            .port(self.port)
+            .username(&self.username)
+            .password(&self.password.expose_secret())
     }
 
-    pub fn connection_dsn(&self) -> Secret<String> {
-        Secret::new(format!(
-            "mysql://{}:{}@{}:{}",
-            self.username,
-            self.password.expose_secret(),
-            self.host,
-            self.port,
-        ))
+    pub fn with_db(&self) -> MySqlConnectOptions {
+        self.without_db().database(&self.database_name)
     }
 }
 
