@@ -29,7 +29,10 @@ async fn main() -> Result<(), std::io::Error> {
     let db_connection_pool =
         MySqlPool::connect_lazy(&configuration.database.database_dsn().expose_secret())
             .expect("Failed to create a MySQL connection pool");
-    let address = format!("127.0.0.1:{}", configuration.application_port);
+    let address = format!(
+        "{}:{}",
+        configuration.application.host, configuration.application.port
+    );
     let listener = TcpListener::bind(address)?;
     run(listener, db_connection_pool)?.await
 }
