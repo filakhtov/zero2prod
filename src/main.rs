@@ -27,9 +27,8 @@ async fn main() -> Result<(), std::io::Error> {
     let configuration = get_configuration(&get_configuration_path())
         .expect("Failed to read the `{}` configuration file");
     let db_connection_pool =
-        MySqlPool::connect(&configuration.database.database_dsn().expose_secret())
-            .await
-            .expect("Failed to connect to the database");
+        MySqlPool::connect_lazy(&configuration.database.database_dsn().expose_secret())
+            .expect("Failed to create a MySQL connection pool");
     let address = format!("127.0.0.1:{}", configuration.application_port);
     let listener = TcpListener::bind(address)?;
     run(listener, db_connection_pool)?.await
