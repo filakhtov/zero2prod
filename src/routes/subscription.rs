@@ -35,7 +35,6 @@ async fn insert_subscriber(form: &FormData, db_connection: &MySqlPool) -> Result
     name = "Adding a new subscriber",
     skip(form, db_connection),
     fields(
-        request_id = %Uuid::new_v4(),
         subscriber_email = %form.email,
         subscriber_name = %form.name,
     )
