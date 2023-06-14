@@ -10,25 +10,9 @@ pub struct FormData {
     email: String,
 }
 
-pub async fn subscribe(
-    form: web::Form<FormData>,
-    db_connection: web::Data<MySqlPool>,
-) -> impl Responder {
-    let request_id = Uuid::new_v4();
-
-    let request_span = tracing::info_span!(
-        "Adding a new subscriber",
-        %request_id,
-        subscriber_email = %form.email,
-        subscriber_name = %form.name,
-    );
-    let _request_span_guard = request_span.enter();
-
-    tracing::info!("Adding a new subscriber");
-
-    let query_span = tracing::info_span!("Persisting a new subscriber");
-
-    match sqlx::query!(
+#[tracing::instrument(name = "Persisting subscriber", skip(form, db_connection))]
+async fn insert_subscriber(form: &FormData, db_connection: &MySqlPool) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO `subscriptions` (`id`, `email`, `name`, `subscribed_at`)
         VALUES (?, ?, ?, ?)
@@ -38,17 +22,31 @@ pub async fn subscribe(
         form.name,
         Utc::now(),
     )
-    .execute(db_connection.get_ref())
-    .instrument(query_span)
+    .execute(db_connection)
     .await
-    {
-        Ok(_) => {
-            tracing::info!("{} new subscriber details have been saved", request_id);
-            HttpResponse::Ok()
-        }
-        Err(e) => {
-            tracing::error!("{} failed to execute the query: {:?}", e, request_id);
-            HttpResponse::InternalServerError()
-        }
+    .map_err(|e| {
+        tracing::error!("Failed to execute the query: {:?}", e);
+
+        e
+    })?;
+    Ok({})
+}
+
+#[tracing::instrument(
+    name = "Adding a new subscriber",
+    skip(form, db_connection),
+    fields(
+        request_id = %Uuid::new_v4(),
+        subscriber_email = %form.email,
+        subscriber_name = %form.name,
+    )
+)]
+pub async fn subscribe(
+    form: web::Form<FormData>,
+    db_connection: web::Data<MySqlPool>,
+) -> impl Responder {
+    match insert_subscriber(&form, &db_connection).await {
+        Ok(_) => HttpResponse::Ok(),
+        _ => HttpResponse::InternalServerError(),
     }
 }
