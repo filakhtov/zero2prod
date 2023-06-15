@@ -4,7 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub struct SubscriberName(String);
 
 impl SubscriberName {
-    pub fn parse(name: &str) -> Result<Self, &str> {
+    pub fn parse(name: &str) -> Result<Self, &'static str> {
         if name.trim().is_empty() {
             return Err("The name can't be empty");
         }
