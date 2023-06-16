@@ -7,3 +7,6 @@ database:
   username: user
   password: pass
   database_name: newsletter
+email:
+  base_url: "https://api.postmarkapp.com"
+  sender_email: user@example.com

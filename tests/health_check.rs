@@ -5,6 +5,7 @@ use tokio::sync::OnceCell;
 use uuid::Uuid;
 use zero2prod::{
     configuration::{get_configuration, DatabaseSettings},
+    email_client::EmailClient,
     telemetry::{get_subscriber, init_subscriber},
 };
 
@@ -97,7 +98,14 @@ async fn spawn_app() -> TestApp {
     create_database(&configuration.database).await;
     let db_pool = migrate_database(&configuration.database).await;
 
-    let server = zero2prod::startup::run(listener, db_pool.clone()).expect("Failed to run the app");
+    let sender_email = configuration
+        .email
+        .sender()
+        .expect("Invalid sender email address");
+    let email_client = EmailClient::new(configuration.email.base_url, sender_email);
+
+    let server = zero2prod::startup::run(listener, db_pool.clone(), email_client)
+        .expect("Failed to run the app");
     let _ = tokio::spawn(server);
 
     let address = format!("http://127.0.0.1:{}", port);

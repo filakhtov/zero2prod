@@ -3,10 +3,13 @@ use secrecy::{ExposeSecret, Secret};
 use sqlx::{mysql::MySqlConnectOptions, ConnectOptions};
 use tracing::log::LevelFilter;
 
+use crate::domain::SubscriberEmail;
+
 #[derive(serde::Deserialize)]
 pub struct Settings {
     pub database: DatabaseSettings,
     pub application: ApplicationSettings,
+    pub email: EmailClientSettings,
 }
 
 #[derive(serde::Deserialize)]
@@ -22,6 +25,18 @@ pub struct DatabaseSettings {
 pub struct ApplicationSettings {
     pub host: String,
     pub port: u16,
+}
+
+#[derive(serde::Deserialize)]
+pub struct EmailClientSettings {
+    pub base_url: String,
+    pub sender_email: String,
+}
+
+impl EmailClientSettings {
+    pub fn sender(&self) -> Result<SubscriberEmail, &'static str> {
+        SubscriberEmail::parse(&self.sender_email)
+    }
 }
 
 impl DatabaseSettings {
