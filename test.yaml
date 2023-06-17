@@ -10,3 +10,4 @@ database:
 email:
   base_url: "localhost"
   sender_email: user@example.com
+  authorization_token: "your token value here"

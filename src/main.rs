@@ -41,7 +41,11 @@ async fn main() -> Result<(), std::io::Error> {
         .email
         .sender()
         .expect("Invalid sender email address");
-    let email_client = EmailClient::new(configuration.email.base_url, sender_email);
+    let email_client = EmailClient::new(
+        configuration.email.base_url,
+        sender_email,
+        configuration.email.authorization_token,
+    );
 
     run(listener, db_connection_pool, email_client)?.await
 }

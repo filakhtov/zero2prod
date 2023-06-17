@@ -10,3 +10,4 @@ database:
 email:
   base_url: "https://api.postmarkapp.com"
   sender_email: user@example.com
+  authorization_token: "your token value here"
