@@ -43,7 +43,8 @@ async fn insert_subscriber(
 
         e
     })?;
-    Ok({})
+
+    Ok(())
 }
 
 #[tracing::instrument(
@@ -60,11 +61,11 @@ pub async fn subscribe(
 ) -> impl Responder {
     let new_subscriber = match form.0.try_into() {
         Ok(sub) => sub,
-        _ => return HttpResponse::BadRequest(),
+        _ => return HttpResponse::BadRequest().await,
     };
 
     match insert_subscriber(&new_subscriber, &db_connection).await {
-        Ok(_) => HttpResponse::Ok(),
-        _ => HttpResponse::InternalServerError(),
+        Ok(_) => HttpResponse::Ok().await,
+        _ => HttpResponse::InternalServerError().await,
     }
 }
