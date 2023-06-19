@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use config::{Config, ConfigError, File, FileFormat};
 use secrecy::{ExposeSecret, Secret};
 use sqlx::{mysql::MySqlConnectOptions, ConnectOptions};
@@ -32,11 +34,16 @@ pub struct EmailClientSettings {
     pub base_url: String,
     pub sender_email: String,
     pub authorization_token: Secret<String>,
+    pub timeout_milliseconds: u64,
 }
 
 impl EmailClientSettings {
     pub fn sender(&self) -> Result<SubscriberEmail, &'static str> {
         SubscriberEmail::parse(&self.sender_email)
+    }
+
+    pub fn timeout(&self) -> Duration {
+        Duration::from_millis(self.timeout_milliseconds)
     }
 }
 

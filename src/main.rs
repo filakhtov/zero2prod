@@ -36,6 +36,7 @@ async fn main() -> Result<(), std::io::Error> {
         configuration.application.host, configuration.application.port
     );
     let listener = TcpListener::bind(address)?;
+    let timeout = configuration.email.timeout();
 
     let sender_email = configuration
         .email
@@ -45,6 +46,7 @@ async fn main() -> Result<(), std::io::Error> {
         configuration.email.base_url,
         sender_email,
         configuration.email.authorization_token,
+        timeout,
     );
 
     run(listener, db_connection_pool, email_client)?.await
