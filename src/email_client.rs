@@ -1,7 +1,7 @@
+use crate::domain::SubscriberEmail;
 use reqwest::Client;
 use secrecy::{ExposeSecret, Secret};
-
-use crate::domain::SubscriberEmail;
+use std::time::Duration;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -26,9 +26,13 @@ impl EmailClient {
         sender: SubscriberEmail,
         authorization_token: Secret<String>,
     ) -> Self {
+        let http_client = Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap();
         Self {
             base_url,
-            http_client: Client::new(),
+            http_client,
             sender,
             authorization_token,
         }
@@ -77,6 +81,7 @@ mod test {
         Fake, Faker,
     };
     use secrecy::Secret;
+    use std::time::Duration;
     use wiremock::{
         matchers::{any, header, header_exists, method, path},
         Mock, MockServer, ResponseTemplate,
@@ -161,6 +166,33 @@ mod test {
 
         Mock::given(any())
             .respond_with(ResponseTemplate::new(500))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let subscriber_email: String = SafeEmail().fake();
+        let subscriber_email = SubscriberEmail::parse(&subscriber_email).unwrap();
+        let subject: String = Sentence(1..2).fake();
+        let content: String = Paragraph(1..10).fake();
+
+        let result = email_client
+            .send_email(subscriber_email, &subject, &content, &content)
+            .await;
+
+        assert_err!(result);
+    }
+
+    #[tokio::test]
+    async fn send_email_aborts_connection_if_the_server_takes_too_long_to_respond() {
+        let mock_server = MockServer::start().await;
+
+        let sender_email: String = SafeEmail().fake();
+        let sender = SubscriberEmail::parse(&sender_email).unwrap();
+        let email_client = EmailClient::new(mock_server.uri(), sender, Secret::new(Faker.fake()));
+
+        let response = ResponseTemplate::new(200).set_delay(Duration::from_secs(180));
+        Mock::given(any())
+            .respond_with(response)
             .expect(1)
             .mount(&mock_server)
             .await;
