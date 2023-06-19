@@ -53,7 +53,7 @@ impl DatabaseSettings {
             .host(&self.host)
             .port(self.port)
             .username(&self.username)
-            .password(&self.password.expose_secret());
+            .password(self.password.expose_secret());
         options.log_statements(LevelFilter::Trace);
         options
     }

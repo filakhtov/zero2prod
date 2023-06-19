@@ -110,6 +110,7 @@ pub async fn spawn_app() -> TestApp {
 
     let server = zero2prod::startup::run(listener, db_pool.clone(), email_client)
         .expect("Failed to run the app");
+    #[allow(clippy::let_underscore_future)]
     let _ = tokio::spawn(server);
 
     let address = format!("http://127.0.0.1:{}", port);
