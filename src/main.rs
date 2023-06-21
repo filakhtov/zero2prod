@@ -1,6 +1,6 @@
 use zero2prod::{
     configuration::get_configuration,
-    startup::build,
+    startup::Application,
     telemetry::{get_subscriber, init_subscriber},
 };
 
@@ -24,8 +24,8 @@ async fn main() -> Result<(), std::io::Error> {
     let configuration = get_configuration(&get_configuration_path())
         .expect("Failed to read the `{}` configuration file");
 
-    let server = build(configuration).await?;
-    server.await?;
+    let server = Application::build(configuration).await?;
+    server.run_until_stopped().await?;
 
     Ok(())
 }

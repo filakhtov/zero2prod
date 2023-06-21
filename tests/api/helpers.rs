@@ -1,10 +1,9 @@
 use sqlx::{Executor, MySqlPool};
-use std::net::TcpListener;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 use zero2prod::{
     configuration::{get_configuration, DatabaseSettings},
-    email_client::EmailClient,
+    startup::{get_connection_pool, Application},
     telemetry::{get_subscriber, init_subscriber},
 };
 pub struct TestApp {
@@ -64,8 +63,16 @@ fn should_display_output() -> bool {
 }
 
 pub async fn spawn_app() -> TestApp {
-    let mut configuration =
-        get_configuration("test.yaml").expect("Failed to read test configuration");
+    let configuration = {
+        let mut conf = get_configuration("test.yaml").expect("Failed to read test configuration");
+        conf.database.database_name = format!(
+            "{}_{}",
+            conf.database.database_name,
+            Uuid::new_v4().as_simple(),
+        );
+        conf
+    };
+    let db_configuration = configuration.database.clone();
 
     TEST_SETUP
         .get_or_init(|| async {
@@ -85,35 +92,19 @@ pub async fn spawn_app() -> TestApp {
         })
         .await;
 
-    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to the random port");
-    let port = listener.local_addr().unwrap().port();
+    create_database(&db_configuration).await;
+    migrate_database(&db_configuration).await;
 
-    configuration.database.database_name = format!(
-        "{}_{}",
-        configuration.database.database_name,
-        Uuid::new_v4().as_simple(),
-    );
-    create_database(&configuration.database).await;
-    let db_pool = migrate_database(&configuration.database).await;
+    let application = Application::build(configuration)
+        .await
+        .expect("Failed to build the application.");
+    let address = format!("http://127.0.0.1:{}", application.port());
 
-    let sender_email = configuration
-        .email
-        .sender()
-        .expect("Invalid sender email address");
-    let timeout = configuration.email.timeout();
-    let email_client = EmailClient::new(
-        configuration.email.base_url,
-        sender_email,
-        configuration.email.authorization_token,
-        timeout,
-    );
-
-    let server = zero2prod::startup::run(listener, db_pool.clone(), email_client)
-        .expect("Failed to run the app");
     #[allow(clippy::let_underscore_future)]
-    let _ = tokio::spawn(server);
+    let _ = tokio::spawn(application.run_until_stopped());
 
-    let address = format!("http://127.0.0.1:{}", port);
-
-    TestApp { address, db_pool }
+    TestApp {
+        address,
+        db_pool: get_connection_pool(&db_configuration),
+    }
 }

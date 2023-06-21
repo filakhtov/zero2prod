@@ -1,5 +1,5 @@
 use crate::{
-    configuration::Settings,
+    configuration::{DatabaseSettings, Settings},
     email_client::EmailClient,
     routes::{health_check, subscribe},
 };
@@ -8,30 +8,52 @@ use sqlx::{mysql::MySqlPoolOptions, MySqlPool};
 use std::{net::TcpListener, time::Duration};
 use tracing_actix_web::TracingLogger;
 
-pub async fn build(configuration: Settings) -> Result<Server, std::io::Error> {
-    let db_connection_pool = MySqlPoolOptions::new()
+pub struct Application {
+    port: u16,
+    server: Server,
+}
+
+pub fn get_connection_pool(configuration: &DatabaseSettings) -> MySqlPool {
+    MySqlPoolOptions::new()
         .acquire_timeout(Duration::from_secs(2))
-        .connect_lazy_with(configuration.database.with_db());
+        .connect_lazy_with(configuration.with_db())
+}
 
-    let address = format!(
-        "{}:{}",
-        configuration.application.host, configuration.application.port
-    );
-    let listener = TcpListener::bind(address)?;
-    let timeout = configuration.email.timeout();
+impl Application {
+    pub async fn build(configuration: Settings) -> Result<Self, std::io::Error> {
+        let db_connection_pool = get_connection_pool(&configuration.database);
 
-    let sender_email = configuration
-        .email
-        .sender()
-        .expect("Invalid sender email address");
-    let email_client = EmailClient::new(
-        configuration.email.base_url,
-        sender_email,
-        configuration.email.authorization_token,
-        timeout,
-    );
+        let address = format!(
+            "{}:{}",
+            configuration.application.host, configuration.application.port
+        );
+        let listener = TcpListener::bind(address)?;
+        let port = listener.local_addr().unwrap().port();
+        let timeout = configuration.email.timeout();
 
-    run(listener, db_connection_pool, email_client)
+        let sender_email = configuration
+            .email
+            .sender()
+            .expect("Invalid sender email address");
+        let email_client = EmailClient::new(
+            configuration.email.base_url,
+            sender_email,
+            configuration.email.authorization_token,
+            timeout,
+        );
+
+        let server = run(listener, db_connection_pool, email_client)?;
+
+        Ok(Self { server, port })
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub async fn run_until_stopped(self) -> Result<(), std::io::Error> {
+        self.server.await
+    }
 }
 
 pub fn run(

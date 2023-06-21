@@ -14,7 +14,7 @@ pub struct Settings {
     pub email: EmailClientSettings,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 pub struct DatabaseSettings {
     pub username: String,
     pub password: Secret<String>,
