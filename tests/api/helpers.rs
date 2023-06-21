@@ -11,6 +11,18 @@ pub struct TestApp {
     pub db_pool: MySqlPool,
 }
 
+impl TestApp {
+    pub async fn post_subscriptions(&self, body: String) -> reqwest::Response {
+        reqwest::Client::new()
+            .post(&format!("{}/subscriptions", &self.address))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await
+            .expect("Failed to send a request")
+    }
+}
+
 async fn cleanup_database(db_settings: &DatabaseSettings) {
     let db_connection = MySqlPool::connect_with(db_settings.without_db())
         .await
