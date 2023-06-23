@@ -1,5 +1,5 @@
 use crate::helpers::spawn_app;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 
 #[tokio::test]
 async fn subscribe_responds_with_200_for_valid_form_data() {
