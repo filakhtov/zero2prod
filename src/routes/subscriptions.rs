@@ -3,7 +3,10 @@ use chrono::Utc;
 use sqlx::MySqlPool;
 use uuid::Uuid;
 
-use crate::domain::{NewSubscriber, SubscriberEmail, SubscriberName};
+use crate::{
+    domain::{NewSubscriber, SubscriberEmail, SubscriberName},
+    email_client::EmailClient,
+};
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
@@ -49,7 +52,7 @@ async fn insert_subscriber(
 
 #[tracing::instrument(
     name = "Adding a new subscriber",
-    skip(form, db_connection),
+    skip(form, db_connection, email_client),
     fields(
         subscriber_email = %form.email,
         subscriber_name = %form.name,
@@ -58,14 +61,32 @@ async fn insert_subscriber(
 pub async fn subscribe(
     form: web::Form<FormData>,
     db_connection: web::Data<MySqlPool>,
+    email_client: web::Data<EmailClient>,
 ) -> impl Responder {
     let new_subscriber = match form.0.try_into() {
         Ok(sub) => sub,
-        _ => return HttpResponse::BadRequest().await,
+        _ => return HttpResponse::BadRequest().finish(),
     };
 
-    match insert_subscriber(&new_subscriber, &db_connection).await {
-        Ok(_) => HttpResponse::Ok().await,
-        _ => HttpResponse::InternalServerError().await,
+    if insert_subscriber(&new_subscriber, &db_connection)
+        .await
+        .is_err()
+    {
+        return HttpResponse::InternalServerError().finish();
     }
+
+    if email_client
+        .send_email(
+            new_subscriber.email,
+            "Welcome",
+            "Welcome to our newsletter!",
+            "Welcome to our newsletter",
+        )
+        .await
+        .is_err()
+    {
+        return HttpResponse::InternalServerError().finish();
+    }
+
+    HttpResponse::Ok().finish()
 }

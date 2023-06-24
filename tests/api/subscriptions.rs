@@ -1,11 +1,22 @@
 use crate::helpers::spawn_app;
 use reqwest::StatusCode;
+use wiremock::{
+    matchers::{method, path},
+    Mock, ResponseTemplate,
+};
 
 #[tokio::test]
 async fn subscribe_responds_with_200_for_valid_form_data() {
     let test_app = spawn_app().await;
 
     let body = "name=John%20Doe&email=john.doe%40example.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&test_app.email_server)
+        .await;
+
     let response = test_app.post_subscriptions(body.into()).await;
 
     assert_eq!(StatusCode::OK, response.status());
@@ -83,4 +94,20 @@ async fn subscriber_responds_with_400_when_email_has_invalid_format() {
         .await;
 
     assert_eq!(StatusCode::BAD_REQUEST, response.status());
+}
+
+#[tokio::test]
+async fn subscribe_sends_a_confirmation_email_for_valid_data() {
+    let test_app = spawn_app().await;
+
+    let body = "name=Jonathan&email=jonathan.white%40example.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    test_app.post_subscriptions(body.into()).await;
 }

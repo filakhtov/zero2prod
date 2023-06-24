@@ -1,6 +1,7 @@
 use sqlx::{Executor, MySqlPool};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
+use wiremock::MockServer;
 use zero2prod::{
     configuration::{get_configuration, DatabaseSettings},
     startup::{get_connection_pool, Application},
@@ -9,6 +10,7 @@ use zero2prod::{
 pub struct TestApp {
     pub address: String,
     pub db_pool: MySqlPool,
+    pub email_server: MockServer,
 }
 
 impl TestApp {
@@ -75,6 +77,8 @@ fn should_display_output() -> bool {
 }
 
 pub async fn spawn_app() -> TestApp {
+    let email_server = MockServer::start().await;
+
     let configuration = {
         let mut conf = get_configuration("test.yaml").expect("Failed to read test configuration");
         conf.database.database_name = format!(
@@ -82,6 +86,7 @@ pub async fn spawn_app() -> TestApp {
             conf.database.database_name,
             Uuid::new_v4().as_simple(),
         );
+        conf.email.base_url = email_server.uri();
         conf
     };
     let db_configuration = configuration.database.clone();
@@ -118,5 +123,6 @@ pub async fn spawn_app() -> TestApp {
     TestApp {
         address,
         db_pool: get_connection_pool(&db_configuration),
+        email_server,
     }
 }
