@@ -1,3 +1,4 @@
+use reqwest::Url;
 use sqlx::{Executor, MySqlPool};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
@@ -7,6 +8,12 @@ use zero2prod::{
     startup::{get_connection_pool, Application},
     telemetry::{get_subscriber, init_subscriber},
 };
+
+pub struct ConfirmationLinks {
+    pub html: Url,
+    pub text: Url,
+}
+
 pub struct TestApp {
     pub address: String,
     pub db_pool: MySqlPool,
@@ -23,6 +30,27 @@ impl TestApp {
             .send()
             .await
             .expect("Failed to send a request")
+    }
+
+    pub fn get_confirmation_links(&self, email_request: &wiremock::Request) -> ConfirmationLinks {
+        let body: serde_json::Value = serde_json::from_slice(&email_request.body).unwrap();
+
+        let get_link = |text: &str| {
+            let links: Vec<_> = linkify::LinkFinder::new()
+                .links(text)
+                .filter(|link| *link.kind() == linkify::LinkKind::Url)
+                .collect();
+            assert_eq!(1, links.len());
+            let mut confirmation_link = Url::parse(links[0].as_str()).unwrap();
+            assert_eq!("127.0.0.1", confirmation_link.host_str().unwrap());
+            confirmation_link.set_port(Some(self.port)).unwrap();
+            confirmation_link
+        };
+
+        let html = get_link(body["HtmlBody"].as_str().unwrap());
+        let text = get_link(body["TextBody"].as_str().unwrap());
+
+        ConfirmationLinks { html, text }
     }
 }
 
