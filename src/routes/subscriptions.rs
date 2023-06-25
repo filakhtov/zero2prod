@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::{
     domain::{NewSubscriber, SubscriberEmail, SubscriberName},
     email_client::EmailClient,
+    startup::ApplicationBaseUrl,
 };
 
 #[derive(serde::Deserialize)]
@@ -52,13 +53,17 @@ async fn insert_subscriber(
 
 #[tracing::instrument(
     name = "Send a confirmation email to a new subscriber",
-    skip(email_client, new_subscriber)
+    skip(email_client, new_subscriber, base_url)
 )]
 async fn send_confirmation_email(
     email_client: &EmailClient,
     new_subscriber: NewSubscriber,
+    base_url: &str,
 ) -> Result<(), reqwest::Error> {
-    let confirmation_link = "https://there-is-no-such-domain.com/subscriptions/confirm";
+    let confirmation_link = format!(
+        "{}/subscriptions/confirm?subscription_token=mytoken",
+        base_url
+    );
     let plain_body = format!(
         "Welcome to our newsletter\nVisit {} to confirm your subscription.",
         confirmation_link
@@ -77,7 +82,7 @@ async fn send_confirmation_email(
 
 #[tracing::instrument(
     name = "Adding a new subscriber",
-    skip(form, db_connection, email_client),
+    skip(form, db_connection, email_client, base_url),
     fields(
         subscriber_email = %form.email,
         subscriber_name = %form.name,
@@ -87,6 +92,7 @@ pub async fn subscribe(
     form: web::Form<FormData>,
     db_connection: web::Data<MySqlPool>,
     email_client: web::Data<EmailClient>,
+    base_url: web::Data<ApplicationBaseUrl>,
 ) -> impl Responder {
     let new_subscriber = match form.0.try_into() {
         Ok(sub) => sub,
@@ -100,21 +106,7 @@ pub async fn subscribe(
         return HttpResponse::InternalServerError().finish();
     }
 
-    let confirmation_link = "https://there-is-no-such-domain.com/subscriptions/confirm";
-    if email_client
-        .send_email(
-            new_subscriber.email,
-            "Welcome",
-            &format!(
-                "Welcome to our newsletter!<br />\
-                Click <a href=\"{}\">here</a> to confirm your subscription.",
-                confirmation_link
-            ),
-            &format!(
-                "Welcome to our newsletter\nVisit {} to confirm your subscription.",
-                confirmation_link
-            ),
-        )
+    if send_confirmation_email(email_client.as_ref(), new_subscriber, &base_url.0)
         .await
         .is_err()
     {
