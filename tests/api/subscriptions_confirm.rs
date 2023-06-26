@@ -51,7 +51,7 @@ async fn clicking_on_the_confirmation_link_confirms_a_subscriber() {
     test_app.post_subscriptions(body.into()).await;
 
     let received_request = &test_app.email_server.received_requests().await.unwrap()[0];
-    let confirmation_links = test_app.get_confirmation_links(&received_request);
+    let confirmation_links = test_app.get_confirmation_links(received_request);
 
     reqwest::get(confirmation_links.html)
         .await
