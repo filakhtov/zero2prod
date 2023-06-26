@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse, Responder};
 use chrono::Utc;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
-use sqlx::MySqlPool;
+use sqlx::{MySql, MySqlPool, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -26,10 +26,10 @@ impl TryFrom<FormData> for NewSubscriber {
     }
 }
 
-#[tracing::instrument(name = "Persisting subscriber", skip(new_subscriber, db_connection))]
+#[tracing::instrument(name = "Persisting subscriber", skip(new_subscriber, db_transaction))]
 async fn insert_subscriber(
+    db_transaction: &mut Transaction<'_, MySql>,
     new_subscriber: &NewSubscriber,
-    db_connection: &MySqlPool,
 ) -> Result<Uuid, sqlx::Error> {
     let subscriber_id = Uuid::new_v4();
     sqlx::query!(
@@ -42,7 +42,7 @@ async fn insert_subscriber(
         new_subscriber.name.as_ref(),
         Utc::now(),
     )
-    .execute(db_connection)
+    .execute(db_transaction)
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute the query: {:?}", e);
@@ -93,10 +93,10 @@ fn generate_subscription_token() -> String {
 
 #[tracing::instrument(
     name = "Store subscription token in the database",
-    skip(subscription_token, db_connection)
+    skip(subscription_token, db_transaction)
 )]
 async fn store_token(
-    db_connection: &MySqlPool,
+    db_transaction: &mut Transaction<'_, MySql>,
     subscriber_id: Uuid,
     subscription_token: &str,
 ) -> Result<(), sqlx::Error> {
@@ -104,13 +104,13 @@ async fn store_token(
         r#"INSERT INTO `subscription_tokens` (`subscription_token`, `subscriber_id`) VALUES (?, ?)"#,
         subscription_token,
         subscriber_id.to_string(),
-    ).execute(db_connection).await.map_err(|e| {tracing::error!("Failed to execute query: {:?}", e); e})?;
+    ).execute(db_transaction).await.map_err(|e| {tracing::error!("Failed to execute query: {:?}", e); e})?;
     Ok(())
 }
 
 #[tracing::instrument(
     name = "Adding a new subscriber",
-    skip(form, db_connection, email_client, base_url),
+    skip(form, db_pool, email_client, base_url),
     fields(
         subscriber_email = %form.email,
         subscriber_name = %form.name,
@@ -118,7 +118,7 @@ async fn store_token(
 )]
 pub async fn subscribe(
     form: web::Form<FormData>,
-    db_connection: web::Data<MySqlPool>,
+    db_pool: web::Data<MySqlPool>,
     email_client: web::Data<EmailClient>,
     base_url: web::Data<ApplicationBaseUrl>,
 ) -> impl Responder {
@@ -126,17 +126,25 @@ pub async fn subscribe(
         Ok(sub) => sub,
         _ => return HttpResponse::BadRequest().finish(),
     };
+    let mut db_transaction = match db_pool.begin().await {
+        Ok(t) => t,
+        _ => return HttpResponse::InternalServerError().finish(),
+    };
 
-    let subscriber_id = match insert_subscriber(&new_subscriber, &db_connection).await {
+    let subscriber_id = match insert_subscriber(&mut db_transaction, &new_subscriber).await {
         Ok(id) => id,
         _ => return HttpResponse::InternalServerError().finish(),
     };
 
     let subscription_token = &generate_subscription_token();
-    if store_token(&db_connection, subscriber_id, subscription_token)
+    if store_token(&mut db_transaction, subscriber_id, subscription_token)
         .await
         .is_err()
     {
+        return HttpResponse::InternalServerError().finish();
+    }
+
+    if db_transaction.commit().await.is_err() {
         return HttpResponse::InternalServerError().finish();
     }
 
