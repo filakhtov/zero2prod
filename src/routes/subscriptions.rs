@@ -1,5 +1,6 @@
 use actix_web::{web, HttpResponse, Responder};
 use chrono::Utc;
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sqlx::MySqlPool;
 use uuid::Uuid;
 
@@ -29,13 +30,14 @@ impl TryFrom<FormData> for NewSubscriber {
 async fn insert_subscriber(
     new_subscriber: &NewSubscriber,
     db_connection: &MySqlPool,
-) -> Result<(), sqlx::Error> {
+) -> Result<Uuid, sqlx::Error> {
+    let subscriber_id = Uuid::new_v4();
     sqlx::query!(
         r#"
         INSERT INTO `subscriptions` (`id`, `email`, `name`, `subscribed_at`, `status`)
         VALUES (?, ?, ?, ?, "pending_confirmation")
         "#,
-        Uuid::new_v4().to_string(),
+        subscriber_id.to_string(),
         new_subscriber.email.as_ref(),
         new_subscriber.name.as_ref(),
         Utc::now(),
@@ -48,21 +50,22 @@ async fn insert_subscriber(
         e
     })?;
 
-    Ok(())
+    Ok(subscriber_id)
 }
 
 #[tracing::instrument(
     name = "Send a confirmation email to a new subscriber",
-    skip(email_client, new_subscriber, base_url)
+    skip(email_client, new_subscriber, base_url, subscription_token)
 )]
 async fn send_confirmation_email(
     email_client: &EmailClient,
     new_subscriber: NewSubscriber,
     base_url: &str,
+    subscription_token: &str,
 ) -> Result<(), reqwest::Error> {
     let confirmation_link = format!(
-        "{}/subscriptions/confirm?subscription_token=mytoken",
-        base_url
+        "{}/subscriptions/confirm?subscription_token={}",
+        base_url, subscription_token,
     );
     let plain_body = format!(
         "Welcome to our newsletter\nVisit {} to confirm your subscription.",
@@ -77,6 +80,31 @@ async fn send_confirmation_email(
         .send_email(new_subscriber.email, "Welcome", &html_body, &plain_body)
         .await?;
 
+    Ok(())
+}
+
+fn generate_subscription_token() -> String {
+    let rng = thread_rng();
+    rng.sample_iter(Alphanumeric)
+        .map(char::from)
+        .take(25)
+        .collect()
+}
+
+#[tracing::instrument(
+    name = "Store subscription token in the database",
+    skip(subscription_token, db_connection)
+)]
+async fn store_token(
+    db_connection: &MySqlPool,
+    subscriber_id: Uuid,
+    subscription_token: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"INSERT INTO `subscription_tokens` (`subscription_token`, `subscriber_id`) VALUES (?, ?)"#,
+        subscription_token,
+        subscriber_id.to_string(),
+    ).execute(db_connection).await.map_err(|e| {tracing::error!("Failed to execute query: {:?}", e); e})?;
     Ok(())
 }
 
@@ -99,16 +127,27 @@ pub async fn subscribe(
         _ => return HttpResponse::BadRequest().finish(),
     };
 
-    if insert_subscriber(&new_subscriber, &db_connection)
+    let subscriber_id = match insert_subscriber(&new_subscriber, &db_connection).await {
+        Ok(id) => id,
+        _ => return HttpResponse::InternalServerError().finish(),
+    };
+
+    let subscription_token = &generate_subscription_token();
+    if store_token(&db_connection, subscriber_id, subscription_token)
         .await
         .is_err()
     {
         return HttpResponse::InternalServerError().finish();
     }
 
-    if send_confirmation_email(email_client.as_ref(), new_subscriber, &base_url.0)
-        .await
-        .is_err()
+    if send_confirmation_email(
+        email_client.as_ref(),
+        new_subscriber,
+        &base_url.0,
+        subscription_token,
+    )
+    .await
+    .is_err()
     {
         return HttpResponse::InternalServerError().finish();
     }
