@@ -39,7 +39,7 @@ pub struct EmailClientSettings {
 }
 
 impl EmailClientSettings {
-    pub fn sender(&self) -> Result<SubscriberEmail, &'static str> {
+    pub fn sender(&self) -> Result<SubscriberEmail, String> {
         SubscriberEmail::parse(&self.sender_email)
     }
 

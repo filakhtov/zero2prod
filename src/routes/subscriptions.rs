@@ -17,7 +17,7 @@ pub struct FormData {
 }
 
 impl TryFrom<FormData> for NewSubscriber {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(form: FormData) -> Result<Self, Self::Error> {
         let name = SubscriberName::parse(&form.name)?;
@@ -27,7 +27,7 @@ impl TryFrom<FormData> for NewSubscriber {
 }
 
 #[tracing::instrument(name = "Persisting subscriber", skip(new_subscriber, db_transaction))]
-async fn insert_subscriber(
+async fn persist_subscriber(
     db_transaction: &mut Transaction<'_, MySql>,
     new_subscriber: &NewSubscriber,
 ) -> Result<Uuid, sqlx::Error> {
@@ -95,7 +95,7 @@ fn generate_subscription_token() -> String {
     name = "Store subscription token in the database",
     skip(subscription_token, db_transaction)
 )]
-async fn store_token(
+async fn persist_token(
     db_transaction: &mut Transaction<'_, MySql>,
     subscriber_id: Uuid,
     subscription_token: &str,
@@ -131,13 +131,13 @@ pub async fn subscribe(
         _ => return HttpResponse::InternalServerError().finish(),
     };
 
-    let subscriber_id = match insert_subscriber(&mut db_transaction, &new_subscriber).await {
+    let subscriber_id = match persist_subscriber(&mut db_transaction, &new_subscriber).await {
         Ok(id) => id,
         _ => return HttpResponse::InternalServerError().finish(),
     };
 
     let subscription_token = &generate_subscription_token();
-    if store_token(&mut db_transaction, subscriber_id, subscription_token)
+    if persist_token(&mut db_transaction, subscriber_id, subscription_token)
         .await
         .is_err()
     {

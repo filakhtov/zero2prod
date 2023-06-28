@@ -4,13 +4,13 @@ use unicode_segmentation::UnicodeSegmentation;
 pub struct SubscriberName(String);
 
 impl SubscriberName {
-    pub fn parse(name: &str) -> Result<Self, &'static str> {
+    pub fn parse(name: &str) -> Result<Self, String> {
         if name.trim().is_empty() {
-            return Err("The name can't be empty");
+            return Err("The name can't be empty".to_owned());
         }
 
         if name.graphemes(true).count() > 256 {
-            return Err("The name can't be longer than 256 characters");
+            return Err("The name can't be longer than 256 characters".to_owned());
         }
 
         let forbidden_characters = ['/', '(', ')', '"', '<', '>', '\\', '{', '}'];
@@ -18,7 +18,7 @@ impl SubscriberName {
             .chars()
             .any(|char| forbidden_characters.contains(&char))
         {
-            return Err("The name contains forbidden characters");
+            return Err("The name contains forbidden characters".to_owned());
         }
 
         Ok(Self(name.to_owned()))

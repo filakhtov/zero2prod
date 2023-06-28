@@ -4,9 +4,9 @@ use validator::validate_email;
 pub struct SubscriberEmail(String);
 
 impl SubscriberEmail {
-    pub fn parse(string: &str) -> Result<Self, &'static str> {
+    pub fn parse(string: &str) -> Result<Self, String> {
         if !validate_email(string) {
-            return Err("Email is invalid");
+            return Err(format!("{} email is invalid", string));
         }
 
         Ok(Self(string.to_owned()))
