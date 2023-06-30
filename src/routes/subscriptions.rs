@@ -34,6 +34,7 @@ fn error_chain_fmt<T: std::error::Error + ?Sized>(
     let current = e.source();
 
     if let Some(cause) = current {
+        writeln!(f, "Caused by:\n\t")?;
         error_chain_fmt(cause, f)?;
     }
 
@@ -64,12 +65,13 @@ impl std::error::Error for PersistTokenError {
     }
 }
 
-#[derive(Debug)]
 pub enum SubscribeError {
     Validation(String),
-    Database(sqlx::Error),
     StoreToken(PersistTokenError),
     SendEmail(reqwest::Error),
+    Pool(sqlx::Error),
+    InsertSubscriber(sqlx::Error),
+    TransactionCommit(sqlx::Error),
 }
 
 impl From<reqwest::Error> for SubscribeError {
@@ -78,11 +80,6 @@ impl From<reqwest::Error> for SubscribeError {
     }
 }
 
-impl From<sqlx::Error> for SubscribeError {
-    fn from(e: sqlx::Error) -> Self {
-        Self::Database(e)
-    }
-}
 impl From<PersistTokenError> for SubscribeError {
     fn from(e: PersistTokenError) -> Self {
         Self::StoreToken(e)
@@ -97,11 +94,43 @@ impl From<String> for SubscribeError {
 
 impl std::fmt::Display for SubscribeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Failed to create a new subscriber")
+        match self {
+            Self::Validation(e) => write!(f, "{}", e),
+            Self::Pool(_) => write!(f, "Failed to acquire a database connection from the pool."),
+            Self::InsertSubscriber(_) => {
+                write!(f, "Failed to insert a new subscriber into the database.")
+            }
+            Self::TransactionCommit(_) => write!(
+                f,
+                "Failed to commit SQL transaction while saving a new subscriber."
+            ),
+            Self::StoreToken(_) => write!(
+                f,
+                "Failed to store the confirmation token for the new subscriber."
+            ),
+            Self::SendEmail(_) => write!(f, "Failed to send a confirmation email."),
+        }
     }
 }
 
-impl std::error::Error for SubscribeError {}
+impl std::fmt::Debug for SubscribeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
+}
+
+impl std::error::Error for SubscribeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Validation(_) => None,
+            Self::Pool(e) => Some(e),
+            Self::InsertSubscriber(e) => Some(e),
+            Self::TransactionCommit(e) => Some(e),
+            Self::StoreToken(e) => Some(e),
+            Self::SendEmail(e) => Some(e),
+        }
+    }
+}
 
 impl ResponseError for SubscribeError {
     fn status_code(&self) -> StatusCode {
@@ -213,11 +242,16 @@ pub async fn subscribe(
     base_url: web::Data<ApplicationBaseUrl>,
 ) -> Result<impl Responder, SubscribeError> {
     let new_subscriber = form.0.try_into()?;
-    let mut db_transaction = db_pool.begin().await?;
-    let subscriber_id = persist_subscriber(&mut db_transaction, &new_subscriber).await?;
+    let mut db_transaction = db_pool.begin().await.map_err(SubscribeError::Pool)?;
+    let subscriber_id = persist_subscriber(&mut db_transaction, &new_subscriber)
+        .await
+        .map_err(SubscribeError::InsertSubscriber)?;
     let subscription_token = &generate_subscription_token();
     persist_token(&mut db_transaction, subscriber_id, subscription_token).await?;
-    db_transaction.commit().await?;
+    db_transaction
+        .commit()
+        .await
+        .map_err(SubscribeError::TransactionCommit)?;
     send_confirmation_email(
         email_client.as_ref(),
         new_subscriber,
