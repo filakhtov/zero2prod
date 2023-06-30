@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Responder, ResponseError};
+use actix_web::{http::StatusCode, web, HttpResponse, Responder, ResponseError};
 use chrono::Utc;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sqlx::{MySql, MySqlPool, Transaction};
@@ -40,7 +40,7 @@ fn error_chain_fmt<T: std::error::Error + ?Sized>(
     Ok(())
 }
 
-struct PersistTokenError(sqlx::Error);
+pub struct PersistTokenError(sqlx::Error);
 
 impl std::fmt::Display for PersistTokenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -64,7 +64,53 @@ impl std::error::Error for PersistTokenError {
     }
 }
 
-impl ResponseError for PersistTokenError {}
+#[derive(Debug)]
+pub enum SubscribeError {
+    Validation(String),
+    Database(sqlx::Error),
+    StoreToken(PersistTokenError),
+    SendEmail(reqwest::Error),
+}
+
+impl From<reqwest::Error> for SubscribeError {
+    fn from(e: reqwest::Error) -> Self {
+        Self::SendEmail(e)
+    }
+}
+
+impl From<sqlx::Error> for SubscribeError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Database(e)
+    }
+}
+impl From<PersistTokenError> for SubscribeError {
+    fn from(e: PersistTokenError) -> Self {
+        Self::StoreToken(e)
+    }
+}
+
+impl From<String> for SubscribeError {
+    fn from(e: String) -> Self {
+        Self::Validation(e)
+    }
+}
+
+impl std::fmt::Display for SubscribeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Failed to create a new subscriber")
+    }
+}
+
+impl std::error::Error for SubscribeError {}
+
+impl ResponseError for SubscribeError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            Self::Validation(_) => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
 
 #[tracing::instrument(name = "Persisting subscriber", skip(new_subscriber, db_transaction))]
 async fn persist_subscriber(
@@ -165,39 +211,19 @@ pub async fn subscribe(
     db_pool: web::Data<MySqlPool>,
     email_client: web::Data<EmailClient>,
     base_url: web::Data<ApplicationBaseUrl>,
-) -> Result<impl Responder, actix_web::Error> {
-    let new_subscriber = match form.0.try_into() {
-        Ok(sub) => sub,
-        _ => return Ok(HttpResponse::BadRequest().finish()),
-    };
-    let mut db_transaction = match db_pool.begin().await {
-        Ok(t) => t,
-        _ => return Ok(HttpResponse::InternalServerError().finish()),
-    };
-
-    let subscriber_id = match persist_subscriber(&mut db_transaction, &new_subscriber).await {
-        Ok(id) => id,
-        _ => return Ok(HttpResponse::InternalServerError().finish()),
-    };
-
+) -> Result<impl Responder, SubscribeError> {
+    let new_subscriber = form.0.try_into()?;
+    let mut db_transaction = db_pool.begin().await?;
+    let subscriber_id = persist_subscriber(&mut db_transaction, &new_subscriber).await?;
     let subscription_token = &generate_subscription_token();
     persist_token(&mut db_transaction, subscriber_id, subscription_token).await?;
-
-    if db_transaction.commit().await.is_err() {
-        return Ok(HttpResponse::InternalServerError().finish());
-    }
-
-    if send_confirmation_email(
+    db_transaction.commit().await?;
+    send_confirmation_email(
         email_client.as_ref(),
         new_subscriber,
         &base_url.0,
         subscription_token,
     )
-    .await
-    .is_err()
-    {
-        return Ok(HttpResponse::InternalServerError().finish());
-    }
-
+    .await?;
     Ok(HttpResponse::Ok().finish())
 }
