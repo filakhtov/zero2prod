@@ -58,7 +58,7 @@ async fn cleanup_database(db_settings: &DatabaseSettings) {
     let db_connection = MySqlPool::connect_with(db_settings.without_db())
         .await
         .expect("Failed to connect to the database");
-    let rows = sqlx::query!(
+    let rows = match sqlx::query!(
         r#"
         SELECT DISTINCT `table_schema`
         FROM `information_schema`.`tables`
@@ -67,13 +67,15 @@ async fn cleanup_database(db_settings: &DatabaseSettings) {
     )
     .fetch_all(&db_connection)
     .await
-    .expect("Failed to select previous test database schemas");
+    {
+        Ok(rows) => rows,
+        _ => return,
+    };
 
     for row in rows {
-        db_connection
+        let _ = db_connection
             .execute(format!(r#"DROP DATABASE `{}`"#, row.table_schema).as_str())
-            .await
-            .expect("Failed to delete old test database schema");
+            .await;
     }
 }
 
