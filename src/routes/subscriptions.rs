@@ -26,10 +26,7 @@ impl TryFrom<FormData> for NewSubscriber {
     }
 }
 
-fn error_chain_fmt<T: std::error::Error + ?Sized>(
-    e: &T,
-    f: &mut std::fmt::Formatter<'_>,
-) -> std::fmt::Result {
+fn error_chain_fmt(e: &dyn std::error::Error, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     writeln!(f, "{}\n", e)?;
     let current = e.source();
 
@@ -69,16 +66,8 @@ impl std::error::Error for PersistTokenError {
 pub enum SubscribeError {
     #[error("{0}")]
     Validation(String),
-    #[error("Failed to store the confirmation token for a new subscriber.")]
-    StoreToken(#[from] PersistTokenError),
-    #[error("Failed to send a confirmation email.")]
-    SendEmail(#[from] reqwest::Error),
-    #[error("Failed to acquire a database connection from the pool.")]
-    Pool(#[source] sqlx::Error),
-    #[error("Failed to insert new subscriber into the database.")]
-    InsertSubscriber(#[source] sqlx::Error),
-    #[error("Failed to commit database transaction while storing a new subscriber.")]
-    TransactionCommit(#[source] sqlx::Error),
+    #[error(transparent)]
+    UnexpectedError(#[from] Box<dyn std::error::Error>),
 }
 
 impl std::fmt::Debug for SubscribeError {
@@ -197,22 +186,28 @@ pub async fn subscribe(
     base_url: web::Data<ApplicationBaseUrl>,
 ) -> Result<impl Responder, SubscribeError> {
     let new_subscriber = form.0.try_into().map_err(SubscribeError::Validation)?;
-    let mut db_transaction = db_pool.begin().await.map_err(SubscribeError::Pool)?;
+    let mut db_transaction = db_pool
+        .begin()
+        .await
+        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
     let subscriber_id = persist_subscriber(&mut db_transaction, &new_subscriber)
         .await
-        .map_err(SubscribeError::InsertSubscriber)?;
+        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
     let subscription_token = &generate_subscription_token();
-    persist_token(&mut db_transaction, subscriber_id, subscription_token).await?;
+    persist_token(&mut db_transaction, subscriber_id, subscription_token)
+        .await
+        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
     db_transaction
         .commit()
         .await
-        .map_err(SubscribeError::TransactionCommit)?;
+        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
     send_confirmation_email(
         email_client.as_ref(),
         new_subscriber,
         &base_url.0,
         subscription_token,
     )
-    .await?;
+    .await
+    .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
     Ok(HttpResponse::Ok().finish())
 }
