@@ -103,12 +103,7 @@ async fn persist_subscriber(
         Utc::now(),
     )
     .execute(db_transaction)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to execute the query: {:?}", e);
-
-        e
-    })?;
+    .await?;
 
     Ok(subscriber_id)
 }
@@ -164,10 +159,7 @@ async fn persist_token(
         r#"INSERT INTO `subscription_tokens` (`subscription_token`, `subscriber_id`) VALUES (?, ?)"#,
         subscription_token,
         subscriber_id.to_string(),
-    ).execute(db_transaction).await.map_err(|e| {
-        tracing::error!("Failed to execute query: {:?}", e);
-        PersistTokenError(e)
-    })?;
+    ).execute(db_transaction).await.map_err(PersistTokenError)?;
 
     Ok(())
 }
