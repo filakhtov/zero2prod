@@ -23,7 +23,6 @@ async fn main() -> Result<(), std::io::Error> {
 
     let configuration = get_configuration(&get_configuration_path())
         .expect("Failed to read the `{}` configuration file");
-
     let server = Application::build(configuration).await?;
     server.run_until_stopped().await?;
 

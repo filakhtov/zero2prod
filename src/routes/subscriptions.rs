@@ -39,30 +39,6 @@ fn error_chain_fmt(e: &dyn std::error::Error, f: &mut std::fmt::Formatter<'_>) -
     Ok(())
 }
 
-pub struct PersistTokenError(sqlx::Error);
-
-impl std::fmt::Display for PersistTokenError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "A database error was encountered while \
-            persisting a subscription token."
-        )
-    }
-}
-
-impl std::fmt::Debug for PersistTokenError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        error_chain_fmt(self, f)
-    }
-}
-
-impl std::error::Error for PersistTokenError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.0)
-    }
-}
-
 #[derive(thiserror::Error)]
 pub enum SubscribeError {
     #[error("{0}")]
@@ -154,12 +130,12 @@ async fn persist_token(
     db_transaction: &mut Transaction<'_, MySql>,
     subscriber_id: Uuid,
     subscription_token: &str,
-) -> Result<(), PersistTokenError> {
+) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"INSERT INTO `subscription_tokens` (`subscription_token`, `subscriber_id`) VALUES (?, ?)"#,
         subscription_token,
         subscriber_id.to_string(),
-    ).execute(db_transaction).await.map_err(PersistTokenError)?;
+    ).execute(db_transaction).await?;
 
     Ok(())
 }
