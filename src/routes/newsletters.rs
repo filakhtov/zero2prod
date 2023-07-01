@@ -71,17 +71,12 @@ pub async fn publish_newsletter(
 async fn get_confirmed_subscribers(
     pool: &MySqlPool,
 ) -> Result<Vec<Result<ConfirmedSubscriber, anyhow::Error>>, anyhow::Error> {
-    struct Row {
-        email: String,
-    }
-
-    let rows = sqlx::query_as!(
-        Row,
+    let rows = sqlx::query!(
         r#"
             SELECT `email`
             FROM `subscriptions`
             WHERE `status`="confirmed"
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await?;
