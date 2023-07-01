@@ -66,8 +66,8 @@ impl std::error::Error for PersistTokenError {
 pub enum SubscribeError {
     #[error("{0}")]
     Validation(String),
-    #[error(transparent)]
-    UnexpectedError(#[from] Box<dyn std::error::Error>),
+    #[error("{1}")]
+    UnexpectedError(#[source] Box<dyn std::error::Error>, String),
 }
 
 impl std::fmt::Debug for SubscribeError {
@@ -186,21 +186,32 @@ pub async fn subscribe(
     base_url: web::Data<ApplicationBaseUrl>,
 ) -> Result<impl Responder, SubscribeError> {
     let new_subscriber = form.0.try_into().map_err(SubscribeError::Validation)?;
-    let mut db_transaction = db_pool
-        .begin()
-        .await
-        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
+    let mut db_transaction = db_pool.begin().await.map_err(|e| {
+        SubscribeError::UnexpectedError(
+            Box::new(e),
+            "Failed to acquire a database connection from the pool.".into(),
+        )
+    })?;
     let subscriber_id = persist_subscriber(&mut db_transaction, &new_subscriber)
         .await
-        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
+        .map_err(|e| {
+            SubscribeError::UnexpectedError(
+                Box::new(e),
+                "Failed to insert new subscriber in the database.".into(),
+            )
+        })?;
     let subscription_token = &generate_subscription_token();
     persist_token(&mut db_transaction, subscriber_id, subscription_token)
         .await
-        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
-    db_transaction
-        .commit()
-        .await
-        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
+        .map_err(|e| {
+            SubscribeError::UnexpectedError(
+                Box::new(e),
+                "Failed to store the confirmation token for a new subscriber.".into(),
+            )
+        })?;
+    db_transaction.commit().await.map_err(|e| {
+        SubscribeError::UnexpectedError(Box::new(e), "Failed to commit SQL transaction.".into())
+    })?;
     send_confirmation_email(
         email_client.as_ref(),
         new_subscriber,
@@ -208,6 +219,8 @@ pub async fn subscribe(
         subscription_token,
     )
     .await
-    .map_err(|e| SubscribeError::UnexpectedError(Box::new(e)))?;
+    .map_err(|e| {
+        SubscribeError::UnexpectedError(Box::new(e), "Failed to send a confirmation email.".into())
+    })?;
     Ok(HttpResponse::Ok().finish())
 }

@@ -151,7 +151,7 @@ async fn subscribe_sends_a_confirmation_email_with_a_link() {
 async fn subscribe_fails_if_there_is_a_fatal_database_error() {
     let test_app = spawn_app().await;
     let body = "name=Jeremy&email=jeremy@gmail.com";
-    sqlx::query!(r#"ALTER TABLE `subscription_tokens` DROP COLUMN `subscription_token`;"#)
+    sqlx::query!(r#"ALTER TABLE `subscriptions` DROP COLUMN `email`;"#)
         .execute(&test_app.db_pool)
         .await
         .unwrap();
