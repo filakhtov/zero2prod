@@ -1,15 +1,8 @@
-use std::str::FromStr;
-
-use actix_web::{
-    http::{
-        header::{self, HeaderMap, HeaderValue},
-        StatusCode,
-    },
-    web, HttpRequest, HttpResponse, Responder, ResponseError,
-};
+use actix_web::{http::header, web, HttpRequest, HttpResponse, Responder, ResponseError};
 use anyhow::Context;
 use base64::Engine;
 use secrecy::{ExposeSecret, Secret};
+use sha3::Digest;
 use sqlx::MySqlPool;
 use uuid::Uuid;
 
@@ -62,7 +55,7 @@ struct Credentials {
     password: Secret<String>,
 }
 
-fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Error> {
+fn basic_authentication(headers: &header::HeaderMap) -> Result<Credentials, anyhow::Error> {
     let header_value = headers
         .get("Authorization")
         .context("The `Authorization` header was missing.")?
@@ -100,25 +93,30 @@ async fn validate_credentials(
     credentials: Credentials,
     db_pool: &MySqlPool,
 ) -> Result<Uuid, PublishError> {
+    let password_hash = sha3::Sha3_256::digest(credentials.password.expose_secret().as_bytes());
+    let password_hash = format!("{:x}", password_hash);
     let user_id: Option<_> = sqlx::query!(
         r#"
             SELECT `id`
               FROM `users`
-             WHERE `username`=? AND `password`=?
+             WHERE `username`=? AND `password_hash`=?
         "#,
         credentials.username,
-        credentials.password.expose_secret(),
+        password_hash,
     )
     .fetch_optional(db_pool)
     .await
     .context("Failed to perform auth credentials validation query.")
     .map_err(PublishError::UnexpectedError)?;
 
-    user_id
+    let user_id = user_id
+        .map(|row| row.id)
         .ok_or_else(|| anyhow::anyhow!("Invalid username or password"))
-        .map(|row| Uuid::parse_str(&row.id))?
+        .map_err(PublishError::AuthError)?;
+
+    Uuid::parse_str(&user_id)
         .context("Failed to parse user UUID loaded from the database.")
-        .map_err(PublishError::AuthError)
+        .map_err(PublishError::UnexpectedError)
 }
 
 #[tracing::instrument(

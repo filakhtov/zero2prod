@@ -1,4 +1,5 @@
 use reqwest::Url;
+use sha3::Digest;
 use sqlx::{Executor, MySqlPool};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
@@ -19,6 +20,7 @@ pub struct TestApp {
     pub db_pool: MySqlPool,
     pub email_server: MockServer,
     pub port: u16,
+    pub test_user: TestUser,
 }
 
 impl TestApp {
@@ -33,11 +35,9 @@ impl TestApp {
     }
 
     pub async fn post_newsletters(&self, body: serde_json::Value) -> reqwest::Response {
-        let (username, password) = self.test_user().await;
-
         reqwest::Client::new()
             .post(&format!("{}/newsletters", self.address))
-            .basic_auth(username, Some(password))
+            .basic_auth(&self.test_user.username, Some(&self.test_user.password))
             .json(&body)
             .send()
             .await
@@ -64,14 +64,35 @@ impl TestApp {
 
         ConfirmationLinks { html, text }
     }
+}
 
-    pub async fn test_user(&self) -> (String, String) {
-        let row = sqlx::query!("SELECT `username`, `password` FROM `users` LIMIT 1")
-            .fetch_one(&self.db_pool)
-            .await
-            .expect("Failed to fetch test user credentials.");
+pub struct TestUser {
+    pub user_id: Uuid,
+    pub username: String,
+    pub password: String,
+}
 
-        (row.username, row.password)
+impl TestUser {
+    pub fn generate() -> Self {
+        Self {
+            user_id: Uuid::new_v4(),
+            username: Uuid::new_v4().to_string(),
+            password: Uuid::new_v4().to_string(),
+        }
+    }
+
+    async fn store(&self, pool: &MySqlPool) {
+        let password_hash = sha3::Sha3_256::digest(self.password.as_bytes());
+        let password_hash = format!("{:x}", password_hash);
+        sqlx::query!(
+            "INSERT INTO `users` (`id`, `username`, `password_hash`) VALUES (?, ?, ?)",
+            self.user_id.to_string(),
+            self.username,
+            password_hash,
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to persist the test user");
     }
 }
 
@@ -174,28 +195,15 @@ pub async fn spawn_app() -> TestApp {
     let _ = tokio::spawn(application.run_until_stopped());
 
     let db_pool = get_connection_pool(&db_configuration);
+    let test_user = TestUser::generate();
 
-    add_test_user(&db_pool).await;
+    test_user.store(&db_pool).await;
 
     TestApp {
         address,
         db_pool,
         email_server,
         port,
+        test_user,
     }
-}
-
-async fn add_test_user(db_pool: &MySqlPool) {
-    sqlx::query!(
-        "
-            INSERT INTO `users` (`id`, `username`, `password`)
-            VALUES (?, ?, ?)
-        ",
-        Uuid::new_v4().to_string(),
-        Uuid::new_v4().to_string(),
-        Uuid::new_v4().to_string(),
-    )
-    .execute(db_pool)
-    .await
-    .expect("Failed to create test users");
 }
