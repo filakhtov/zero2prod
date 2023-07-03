@@ -79,6 +79,30 @@ async fn newsletters_returns_400_if_content_is_missing() {
     assert_eq!(StatusCode::BAD_REQUEST, response.status());
 }
 
+#[tokio::test]
+async fn newsletters_requests_missing_authorization_are_rejected() {
+    let test_app = spawn_app().await;
+
+    let response = reqwest::Client::new()
+        .post(&format!("{}/newsletters", &test_app.address))
+        .json(&serde_json::json!({
+            "title": "Newsletter title",
+            "content": {
+                "text": "This is a plaintext body",
+                "html": "<P>This is an HTML body</p>",
+            },
+        }))
+        .send()
+        .await
+        .expect("Failed to send a request to the app");
+
+    assert_eq!(StatusCode::UNAUTHORIZED, response.status());
+    assert_eq!(
+        r#"Basic realm="publish""#,
+        response.headers()["WWW-Authenticate"]
+    );
+}
+
 async fn create_unconfirmed_subscriber(test_app: &TestApp) -> ConfirmationLinks {
     let body = "name=Joseph%20Stutgart&email=jstutgart@example.com";
 

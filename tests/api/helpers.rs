@@ -33,8 +33,11 @@ impl TestApp {
     }
 
     pub async fn post_newsletters(&self, body: serde_json::Value) -> reqwest::Response {
+        let (username, password) = self.test_user().await;
+
         reqwest::Client::new()
             .post(&format!("{}/newsletters", self.address))
+            .basic_auth(username, Some(password))
             .json(&body)
             .send()
             .await
@@ -60,6 +63,15 @@ impl TestApp {
         let text = get_link(body["TextBody"].as_str().unwrap());
 
         ConfirmationLinks { html, text }
+    }
+
+    pub async fn test_user(&self) -> (String, String) {
+        let row = sqlx::query!("SELECT `username`, `password` FROM `users` LIMIT 1")
+            .fetch_one(&self.db_pool)
+            .await
+            .expect("Failed to fetch test user credentials.");
+
+        (row.username, row.password)
     }
 }
 
@@ -161,10 +173,29 @@ pub async fn spawn_app() -> TestApp {
     #[allow(clippy::let_underscore_future)]
     let _ = tokio::spawn(application.run_until_stopped());
 
+    let db_pool = get_connection_pool(&db_configuration);
+
+    add_test_user(&db_pool).await;
+
     TestApp {
         address,
-        db_pool: get_connection_pool(&db_configuration),
+        db_pool,
         email_server,
         port,
     }
+}
+
+async fn add_test_user(db_pool: &MySqlPool) {
+    sqlx::query!(
+        "
+            INSERT INTO `users` (`id`, `username`, `password`)
+            VALUES (?, ?, ?)
+        ",
+        Uuid::new_v4().to_string(),
+        Uuid::new_v4().to_string(),
+        Uuid::new_v4().to_string(),
+    )
+    .execute(db_pool)
+    .await
+    .expect("Failed to create test users");
 }
