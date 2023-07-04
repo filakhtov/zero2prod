@@ -89,33 +89,45 @@ fn basic_authentication(headers: &header::HeaderMap) -> Result<Credentials, anyh
     })
 }
 
-async fn validate_credentials(
-    credentials: Credentials,
+#[tracing::instrument(name = "Load stored credentials", skip(username, db_pool))]
+async fn load_stored_credentials(
+    username: &str,
     db_pool: &MySqlPool,
-) -> Result<Uuid, PublishError> {
-    let row: Option<_> = sqlx::query!(
+) -> Result<Option<(Uuid, Secret<String>)>, anyhow::Error> {
+    let result = sqlx::query!(
         r#"
             SELECT `id`, `password_hash`
               FROM `users`
              WHERE `username`=?
         "#,
-        credentials.username,
+        username,
     )
     .fetch_optional(db_pool)
     .await
-    .context("Failed to perform auth credentials validation query.")
-    .map_err(PublishError::UnexpectedError)?;
+    .context("Load stored credentials query failed.")?;
 
-    let (expected_password_hash, user_id) = match row {
-        Some(row) => (row.password_hash, row.id),
-        None => {
-            return Err(PublishError::AuthError(anyhow::anyhow!(
-                "Unknown username."
-            )))?
+    match result {
+        Some(row) => {
+            let uuid = Uuid::parse_str(&row.id)
+                .context("Failed to parse user UUID loaded from the database.")?;
+            let password = Secret::new(row.password_hash);
+            Ok(Some((uuid, password)))
         }
-    };
+        _ => Ok(None),
+    }
+}
 
-    let expected_password_hash = PasswordHash::new(&expected_password_hash)
+#[tracing::instrument(name = "Validate credentials", skip(credentials, db_pool))]
+async fn validate_credentials(
+    credentials: Credentials,
+    db_pool: &MySqlPool,
+) -> Result<Uuid, PublishError> {
+    let (user_id, expected_password_hash) = load_stored_credentials(&credentials.username, db_pool)
+        .await
+        .map_err(PublishError::UnexpectedError)?
+        .ok_or_else(|| PublishError::AuthError(anyhow::anyhow!("Unknown username.")))?;
+
+    let expected_password_hash = PasswordHash::new(expected_password_hash.expose_secret())
         .context("Failed to parse a PHC formatted string hash loaded from the database.")
         .map_err(PublishError::UnexpectedError)?;
 
@@ -127,9 +139,7 @@ async fn validate_credentials(
         .context("Invalid password")
         .map_err(PublishError::AuthError)?;
 
-    Uuid::parse_str(&user_id)
-        .context("Failed to parse user UUID loaded from the database.")
-        .map_err(PublishError::UnexpectedError)
+    Ok(user_id)
 }
 
 #[tracing::instrument(
