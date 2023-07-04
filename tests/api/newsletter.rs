@@ -1,4 +1,5 @@
 use reqwest::StatusCode;
+use uuid::Uuid;
 use wiremock::{
     matchers::{any, method, path},
     Mock, ResponseTemplate,
@@ -91,6 +92,62 @@ async fn newsletters_requests_missing_authorization_are_rejected() {
                 "text": "This is a plaintext body",
                 "html": "<P>This is an HTML body</p>",
             },
+        }))
+        .send()
+        .await
+        .expect("Failed to send a request to the app");
+
+    assert_eq!(StatusCode::UNAUTHORIZED, response.status());
+    assert_eq!(
+        r#"Basic realm="publish""#,
+        response.headers()["WWW-Authenticate"]
+    );
+}
+
+#[tokio::test]
+async fn non_existing_user_is_rejected() {
+    let test_app = spawn_app().await;
+
+    let username = Uuid::new_v4().to_string();
+    let password = Uuid::new_v4().to_string();
+
+    let response = reqwest::Client::new()
+        .post(format!("{}/newsletters", test_app.address))
+        .basic_auth(username, Some(password))
+        .json(&serde_json::json!({
+            "title": "Unauthenticated newsletter",
+            "content": {
+                "text": "This shouldn't be sent",
+                "html": "<p>This shouldn't be sent</p>",
+            },
+        }))
+        .send()
+        .await
+        .expect("Failed to send a request to the app");
+
+    assert_eq!(StatusCode::UNAUTHORIZED, response.status());
+    assert_eq!(
+        r#"Basic realm="publish""#,
+        response.headers()["WWW-Authenticate"]
+    );
+}
+
+#[tokio::test]
+async fn invalid_password_is_rejected() {
+    let test_app = spawn_app().await;
+
+    let password = Uuid::new_v4().to_string();
+    assert_ne!(password, test_app.test_user.password);
+
+    let response = reqwest::Client::new()
+        .post(format!("{}/newsletters", test_app.address))
+        .basic_auth(&test_app.test_user.username, Some(password))
+        .json(&serde_json::json!({
+                "title": "Invalid publishing password",
+                "content": {
+                    "text": "Password is invalid",
+                    "html": "<div>Password is not valid</div>",
+        },
         }))
         .send()
         .await
