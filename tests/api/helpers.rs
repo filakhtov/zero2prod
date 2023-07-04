@@ -1,5 +1,5 @@
+use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use reqwest::Url;
-use sha3::Digest;
 use sqlx::{Executor, MySqlPool};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
@@ -81,9 +81,12 @@ impl TestUser {
         }
     }
 
-    async fn store(&self, pool: &MySqlPool) {
-        let password_hash = sha3::Sha3_256::digest(self.password.as_bytes());
-        let password_hash = format!("{:x}", password_hash);
+    async fn persist(&self, pool: &MySqlPool) {
+        let salt = SaltString::generate(&mut rand::thread_rng());
+        let password_hash = Argon2::default()
+            .hash_password(self.password.as_bytes(), &salt)
+            .unwrap()
+            .to_string();
         sqlx::query!(
             "INSERT INTO `users` (`id`, `username`, `password_hash`) VALUES (?, ?, ?)",
             self.user_id.to_string(),
@@ -197,7 +200,7 @@ pub async fn spawn_app() -> TestApp {
     let db_pool = get_connection_pool(&db_configuration);
     let test_user = TestUser::generate();
 
-    test_user.store(&db_pool).await;
+    test_user.persist(&db_pool).await;
 
     TestApp {
         address,
