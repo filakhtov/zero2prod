@@ -96,7 +96,7 @@ fn basic_authentication(headers: &header::HeaderMap) -> Result<Credentials, anyh
 async fn load_stored_credentials(
     username: &str,
     db_pool: &MySqlPool,
-) -> Result<Option<(Uuid, Secret<String>)>, anyhow::Error> {
+) -> Result<(Option<Uuid>, Secret<String>), anyhow::Error> {
     let result = sqlx::query!(
         r#"
             SELECT `id`, `password_hash`
@@ -114,9 +114,17 @@ async fn load_stored_credentials(
             let uuid = Uuid::parse_str(&row.id)
                 .context("Failed to parse user UUID loaded from the database.")?;
             let password = Secret::new(row.password_hash);
-            Ok(Some((uuid, password)))
+            Ok((Some(uuid), password))
         }
-        _ => Ok(None),
+        _ => Ok((
+            None,
+            Secret::new(
+                "$argon2id$v=19$m=15000,t=2,p=1$\
+                gZiV/M1gPc22ElAH/Jh1Hw$\
+                CWOrkoo7oJBQ/iyh7uJ0LO2aLEfrHwTWllSAxT0zRno"
+                    .to_string(),
+            ),
+        )),
     }
 }
 
@@ -148,8 +156,7 @@ async fn validate_credentials(
 ) -> Result<Uuid, PublishError> {
     let (user_id, expected_password_hash) = load_stored_credentials(&credentials.username, db_pool)
         .await
-        .map_err(PublishError::UnexpectedError)?
-        .ok_or_else(|| PublishError::AuthError(anyhow::anyhow!("Unknown username.")))?;
+        .map_err(PublishError::UnexpectedError)?;
 
     spawn_blocking_with_tracing(move || {
         verify_password_hash(expected_password_hash, credentials.password)
@@ -158,7 +165,7 @@ async fn validate_credentials(
     .context("Failed to spawn a blocking task for password hashing")
     .map_err(PublishError::AuthError)??;
 
-    Ok(user_id)
+    user_id.ok_or_else(|| PublishError::AuthError(anyhow::anyhow!("Unknown username.")))
 }
 
 #[tracing::instrument(
