@@ -131,11 +131,13 @@ async fn validate_credentials(
         .context("Failed to parse a PHC formatted string hash loaded from the database.")
         .map_err(PublishError::UnexpectedError)?;
 
-    Argon2::default()
-        .verify_password(
-            credentials.password.expose_secret().as_bytes(),
-            &expected_password_hash,
-        )
+    tracing::info_span!("Verify password hash")
+        .in_scope(|| {
+            Argon2::default().verify_password(
+                credentials.password.expose_secret().as_bytes(),
+                &expected_password_hash,
+            )
+        })
         .context("Invalid password")
         .map_err(PublishError::AuthError)?;
 
