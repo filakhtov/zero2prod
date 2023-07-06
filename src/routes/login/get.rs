@@ -1,8 +1,4 @@
-use actix_web::{
-    cookie::{time::Duration, Cookie},
-    http::header::ContentType,
-    HttpRequest, HttpResponse, Responder,
-};
+use actix_web::{cookie::Cookie, http::header::ContentType, HttpRequest, HttpResponse, Responder};
 
 pub async fn login_form(request: HttpRequest) -> impl Responder {
     let error_html = match request.cookie("_flash") {
@@ -10,9 +6,8 @@ pub async fn login_form(request: HttpRequest) -> impl Responder {
         Some(cookie) => format!("<p><i>{}</i></p>", cookie.value()),
     };
 
-    HttpResponse::Ok()
+    let mut response = HttpResponse::Ok()
         .content_type(ContentType::html())
-        .cookie(Cookie::build("_flash", "").max_age(Duration::ZERO).finish())
         .body(format!(
             r#"<!DOCTYPE html>
 <html>
@@ -35,5 +30,9 @@ pub async fn login_form(request: HttpRequest) -> impl Responder {
         </form>
     </body>
 </html>"#,
-        ))
+        ));
+    response
+        .add_removal_cookie(&Cookie::new("_flash", ""))
+        .unwrap();
+    response
 }
