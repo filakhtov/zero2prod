@@ -2,8 +2,9 @@ use crate::{
     authentication::{validate_credentials, AuthError, Credentials},
     errors::error_chain_fmt,
 };
-use actix_web::{error::InternalError, http::header::LOCATION, web, HttpResponse, Responder};
-use reqwest::header::SET_COOKIE;
+use actix_web::{
+    cookie::Cookie, error::InternalError, http::header::LOCATION, web, HttpResponse, Responder,
+};
 use secrecy::Secret;
 use sqlx::MySqlPool;
 
@@ -57,7 +58,7 @@ pub async fn login(
 
             let response = HttpResponse::SeeOther()
                 .insert_header((LOCATION, "/login"))
-                .insert_header((SET_COOKIE, format!("_flash={e}")))
+                .cookie(Cookie::new("_flash", e.to_string()))
                 .finish();
 
             Err(InternalError::from_response(e, response))
