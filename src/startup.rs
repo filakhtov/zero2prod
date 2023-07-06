@@ -3,8 +3,9 @@ use crate::{
     email_client::EmailClient,
     routes::{confirm, health_check, home, login, login_form, publish_newsletter, subscribe},
 };
-use actix_web::{dev::Server, web, App, HttpServer};
-use secrecy::Secret;
+use actix_web::{cookie::Key, dev::Server, web, App, HttpServer};
+use actix_web_flash_messages::{storage::CookieMessageStore, FlashMessagesFramework};
+use secrecy::{ExposeSecret, Secret};
 use sqlx::{mysql::MySqlPoolOptions, MySqlPool};
 use std::{net::TcpListener, time::Duration};
 use tracing_actix_web::TracingLogger;
@@ -50,6 +51,7 @@ impl Application {
             db_connection_pool,
             email_client,
             configuration.application.base_url,
+            configuration.application.hmac_secret,
         )?;
 
         Ok(Self { server, port })
@@ -72,13 +74,18 @@ pub fn run(
     db_connection_pool: MySqlPool,
     email_client: EmailClient,
     base_url: String,
+    hmac_secret: Secret<String>,
 ) -> Result<Server, std::io::Error> {
     let connection = web::Data::new(db_connection_pool);
     let email_client = web::Data::new(email_client);
     let base_url = web::Data::new(ApplicationBaseUrl(base_url));
+    let message_store =
+        CookieMessageStore::builder(Key::from(hmac_secret.expose_secret().as_bytes())).build();
+    let message_framework = FlashMessagesFramework::builder(message_store).build();
     Ok(HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
+            .wrap(message_framework.clone())
             .route("/health_check", web::get().to(health_check))
             .route("/", web::get().to(home))
             .route("/login", web::get().to(login_form))
