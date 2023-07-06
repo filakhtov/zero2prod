@@ -1,5 +1,5 @@
 use argon2::{password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version};
-use reqwest::Url;
+use reqwest::{StatusCode, Url};
 use sqlx::{Executor, MySqlPool};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
@@ -42,6 +42,21 @@ impl TestApp {
             .send()
             .await
             .expect("Failed to send a request to `/subscriptions` endpoint")
+    }
+
+    pub async fn post_login<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap()
+            .post(format!("{}/login", self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to send a request to the app")
     }
 
     pub fn get_confirmation_links(&self, email_request: &wiremock::Request) -> ConfirmationLinks {
@@ -154,6 +169,11 @@ static TEST_SETUP: OnceCell<()> = OnceCell::const_new();
 
 fn should_display_output() -> bool {
     std::env::args().any(|a| a == *"--nocapture")
+}
+
+pub fn assert_is_redirect_to(response: &reqwest::Response, location: &str) {
+    assert_eq!(StatusCode::SEE_OTHER, response.status());
+    assert_eq!(response.headers().get("Location").unwrap(), location);
 }
 
 pub async fn spawn_app() -> TestApp {

@@ -24,7 +24,7 @@ hmac = { version = "0.12", features = ["std"] }
 sha2 = "0.10"
 htmlescape = "0.3"
 rand = { version = "0.8", features = ["std_rng"] }
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "cookies"] }
 secrecy = { version = "0.8", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 sqlx = { version = "0.6", default-features = false, features = [
