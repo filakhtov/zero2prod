@@ -33,7 +33,7 @@ async fn redirect_to_admin_dashboard_after_successful_login() {
 
     assert_is_redirect_to(&response, "/admin/dashboard");
 
-    let html_page = test_app.get_admin_dashboard().await;
+    let html_page = test_app.get_admin_dashboard_html().await;
 
     assert!(html_page.contains(&format!("Welcome {}", test_app.test_user.username)));
 }

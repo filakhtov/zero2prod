@@ -1,5 +1,6 @@
 use actix_web::{
-    error::ErrorInternalServerError, http::header::ContentType, web, Error, HttpResponse, Responder,
+    error::ErrorInternalServerError, http::header::ContentType, http::header::LOCATION, web, Error,
+    HttpResponse,
 };
 use anyhow::Context;
 use sqlx::MySqlPool;
@@ -26,17 +27,18 @@ async fn get_username(user_id: Uuid, db_pool: &MySqlPool) -> Result<String, anyh
 
     Ok(row.username)
 }
-
 pub async fn admin_dashboard(
     session: TypedSession,
     db_pool: web::Data<MySqlPool>,
-) -> Result<impl Responder, Error> {
+) -> Result<HttpResponse, Error> {
     let username = if let Some(user_id) = session.get_user_id().map_err(internal_server_error)? {
         get_username(user_id, &db_pool)
             .await
             .map_err(internal_server_error)?
     } else {
-        todo!();
+        return Ok(HttpResponse::SeeOther()
+            .insert_header((LOCATION, "/login"))
+            .finish());
     };
 
     Ok(HttpResponse::Ok()
