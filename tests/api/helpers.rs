@@ -88,6 +88,17 @@ impl TestApp {
 
         ConfirmationLinks { html, text }
     }
+
+    pub async fn get_admin_dashboard(&self) -> String {
+        self.api_client
+            .get(&format!("{}/admin/dashboard", self.address))
+            .send()
+            .await
+            .expect("Failed to send a request to the app")
+            .text()
+            .await
+            .unwrap()
+    }
 }
 
 pub struct TestUser {
