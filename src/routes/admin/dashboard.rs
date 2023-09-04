@@ -1,10 +1,11 @@
-use actix_session::Session;
 use actix_web::{
     error::ErrorInternalServerError, http::header::ContentType, web, Error, HttpResponse, Responder,
 };
 use anyhow::Context;
 use sqlx::MySqlPool;
 use uuid::Uuid;
+
+use crate::session_state::TypedSession;
 
 fn internal_server_error<T>(e: T) -> Error
 where
@@ -27,13 +28,10 @@ async fn get_username(user_id: Uuid, db_pool: &MySqlPool) -> Result<String, anyh
 }
 
 pub async fn admin_dashboard(
-    session: Session,
+    session: TypedSession,
     db_pool: web::Data<MySqlPool>,
 ) -> Result<impl Responder, Error> {
-    let username = if let Some(user_id) = session
-        .get::<Uuid>("user_id")
-        .map_err(internal_server_error)?
-    {
+    let username = if let Some(user_id) = session.get_user_id().map_err(internal_server_error)? {
         get_username(user_id, &db_pool)
             .await
             .map_err(internal_server_error)?

@@ -1,8 +1,8 @@
 use crate::{
     authentication::{validate_credentials, AuthError, Credentials},
     errors::error_chain_fmt,
+    session_state::TypedSession,
 };
-use actix_session::Session;
 use actix_web::{error::InternalError, http::header::LOCATION, web, HttpResponse, Responder};
 use actix_web_flash_messages::FlashMessage;
 use secrecy::Secret;
@@ -46,7 +46,7 @@ fn login_redirect(e: LoginError) -> InternalError<LoginError> {
 pub async fn login(
     db_pool: web::Data<MySqlPool>,
     form: web::Form<FormData>,
-    session: Session,
+    session: TypedSession,
 ) -> Result<impl Responder, InternalError<LoginError>> {
     let credentials = Credentials {
         username: form.0.username,
@@ -60,7 +60,7 @@ pub async fn login(
 
             session.renew();
             session
-                .insert("user_id", user_id)
+                .insert_user_id(user_id)
                 .map_err(|e| login_redirect(LoginError::UnexpectedError(e.into())))?;
 
             Ok(HttpResponse::SeeOther()
