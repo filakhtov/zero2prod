@@ -1,5 +1,6 @@
 use actix_web::{web, HttpResponse};
-use secrecy::Secret;
+use actix_web_flash_messages::FlashMessage;
+use secrecy::{ExposeSecret, Secret};
 use sqlx::MySqlPool;
 
 use crate::{
@@ -25,6 +26,12 @@ pub async fn change_password(
         .is_none()
     {
         return Ok(see_other("/login"));
+    }
+
+    if form_data.new_password.expose_secret() != form_data.new_password_check.expose_secret() {
+        FlashMessage::error("New passwords do not match").send();
+
+        return Ok(see_other("/admin/password"));
     }
 
     todo!()
