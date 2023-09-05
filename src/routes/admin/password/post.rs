@@ -28,8 +28,15 @@ pub async fn change_password(
         _ => return Ok(see_other("/login")),
     };
 
-    if form_data.new_password.expose_secret() != form_data.new_password_check.expose_secret() {
+    let new_password = form_data.new_password.expose_secret();
+    if new_password != form_data.new_password_check.expose_secret() {
         FlashMessage::error("New passwords do not match").send();
+
+        return Ok(see_other("/admin/password"));
+    }
+
+    if new_password.len() < 12 || new_password.len() > 128 {
+        FlashMessage::error("Password must be between 12 and 128 characters long").send();
 
         return Ok(see_other("/admin/password"));
     }
