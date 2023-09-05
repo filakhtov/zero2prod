@@ -16,7 +16,7 @@ where
 }
 
 #[tracing::instrument(name = "Get username", skip(db_pool))]
-async fn get_username(user_id: Uuid, db_pool: &MySqlPool) -> Result<String, anyhow::Error> {
+pub async fn get_username(user_id: Uuid, db_pool: &MySqlPool) -> Result<String, anyhow::Error> {
     let row = sqlx::query!(
         r#"SELECT `username` FROM `users` WHERE `id` = ?"#,
         user_id.to_string()
