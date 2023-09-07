@@ -135,3 +135,42 @@ async fn new_password_must_be_at_most_128_characters_long() {
         html_content.contains("<p><i>Password must be between 12 and 128 characters long</i></p>")
     );
 }
+
+#[tokio::test]
+async fn password_changing_works() {
+    let test_app = spawn_app().await;
+
+    let response = test_app
+        .post_login(&serde_json::json!({
+            "username": test_app.test_user.username,
+            "password": test_app.test_user.password,
+        }))
+        .await;
+    assert_is_redirect_to(&response, "/admin/dashboard");
+
+    let response = test_app
+        .post_change_password(&serde_json::json!({
+            "current_password": test_app.test_user.password,
+            "new_password": "my new password",
+            "new_password_check": "my new password",
+        }))
+        .await;
+    assert_is_redirect_to(&response, "/admin/password");
+
+    let html_content = test_app.get_change_password_html().await;
+    assert!(html_content.contains("<p><i>Your password was successfully changed</i></p>"));
+
+    let response = test_app.post_logout().await;
+    assert_is_redirect_to(&response, "/login");
+
+    let html_content = test_app.get_login_html().await;
+    assert!(html_content.contains("<p><i>You have successfully logged out</i></p>"));
+
+    let response = test_app
+        .post_login(&serde_json::json!({
+            "username": test_app.test_user.username,
+            "password": "my new password",
+        }))
+        .await;
+    assert_is_redirect_to(&response, "/admin/dashboard");
+}

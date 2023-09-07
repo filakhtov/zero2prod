@@ -1,5 +1,8 @@
 use anyhow::Context;
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use argon2::{
+    password_hash::SaltString, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier,
+    Version,
+};
 use secrecy::{ExposeSecret, Secret};
 use sqlx::MySqlPool;
 use uuid::Uuid;
@@ -93,4 +96,43 @@ pub async fn validate_credentials(
     .map_err(AuthError::InvalidCredentials)??;
 
     user_id.ok_or_else(|| AuthError::InvalidCredentials(anyhow::anyhow!("Unknown username.")))
+}
+
+#[tracing::instrument(name = "Change password", skip(password, db_pool))]
+pub async fn change_password(
+    user_id: Uuid,
+    password: Secret<String>,
+    db_pool: &MySqlPool,
+) -> Result<(), anyhow::Error> {
+    let password_hash = spawn_blocking_with_tracing(move || compute_password_hash(password))
+        .await?
+        .context("Failed to hash password")?;
+
+    sqlx::query!(
+        r#"
+        UPDATE `users`
+           SET `password_hash` = ?
+         WHERE `id` = ?
+        "#,
+        password_hash.expose_secret(),
+        user_id.to_string(),
+    )
+    .execute(db_pool)
+    .await
+    .context("Failed to execute query to change the password.")?;
+
+    Ok(())
+}
+
+fn compute_password_hash(password: Secret<String>) -> Result<Secret<String>, anyhow::Error> {
+    let salt = SaltString::generate(&mut rand::thread_rng());
+    let password_hash = Argon2::new(
+        argon2::Algorithm::Argon2id,
+        Version::V0x13,
+        Params::new(15000, 2, 1, None).unwrap(),
+    )
+    .hash_password(password.expose_secret().as_bytes(), &salt)?
+    .to_string();
+
+    Ok(Secret::new(password_hash))
 }

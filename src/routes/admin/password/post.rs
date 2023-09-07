@@ -28,8 +28,8 @@ pub async fn change_password(
         _ => return Ok(see_other("/login")),
     };
 
-    let new_password = form_data.new_password.expose_secret();
-    if new_password != form_data.new_password_check.expose_secret() {
+    let new_password = form_data.0.new_password.expose_secret();
+    if new_password != form_data.0.new_password_check.expose_secret() {
         FlashMessage::error("New passwords do not match").send();
 
         return Ok(see_other("/admin/password"));
@@ -60,5 +60,11 @@ pub async fn change_password(
         };
     }
 
-    todo!()
+    crate::authentication::change_password(user_id, form_data.0.new_password, &db_pool)
+        .await
+        .map_err(internal_server_error)?;
+
+    FlashMessage::info("Your password was successfully changed").send();
+
+    Ok(see_other("/admin/password"))
 }
