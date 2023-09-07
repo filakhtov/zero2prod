@@ -1,7 +1,8 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{error::InternalError, web, HttpResponse};
 use actix_web_flash_messages::FlashMessage;
 use secrecy::{ExposeSecret, Secret};
 use sqlx::MySqlPool;
+use uuid::Uuid;
 
 use crate::{
     authentication::{validate_credentials, AuthError, Credentials},
@@ -17,16 +18,24 @@ pub struct FormData {
     new_password_check: Secret<String>,
 }
 
+fn reject_anonymous_users(session: TypedSession) -> Result<Uuid, actix_web::Error> {
+    let user_id = session.get_user_id().map_err(internal_server_error)?;
+    match user_id {
+        Some(id) => Ok(id),
+        _ => {
+            let response = see_other("/login");
+            let e = anyhow::anyhow!("The user has not logged in");
+            Err(InternalError::from_response(e, response).into())
+        }
+    }
+}
+
 pub async fn change_password(
     session: TypedSession,
     form_data: web::Form<FormData>,
     db_pool: web::Data<MySqlPool>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let user_id = session.get_user_id().map_err(internal_server_error)?;
-    let user_id = match user_id {
-        Some(id) => id,
-        _ => return Ok(see_other("/login")),
-    };
+    let user_id = reject_anonymous_users(session)?;
 
     let new_password = form_data.0.new_password.expose_secret();
     if new_password != form_data.0.new_password_check.expose_secret() {
