@@ -1,12 +1,10 @@
+use crate::authentication::UserId;
 use actix_web::{
-    error::ErrorInternalServerError, http::header::ContentType, http::header::LOCATION, web, Error,
-    HttpResponse,
+    error::ErrorInternalServerError, http::header::ContentType, web, Error, HttpResponse,
 };
 use anyhow::Context;
 use sqlx::MySqlPool;
 use uuid::Uuid;
-
-use crate::session_state::TypedSession;
 
 fn internal_server_error<T>(e: T) -> Error
 where
@@ -28,18 +26,13 @@ pub async fn get_username(user_id: Uuid, db_pool: &MySqlPool) -> Result<String, 
     Ok(row.username)
 }
 pub async fn admin_dashboard(
-    session: TypedSession,
+    user_id: web::ReqData<UserId>,
     db_pool: web::Data<MySqlPool>,
 ) -> Result<HttpResponse, Error> {
-    let username = if let Some(user_id) = session.get_user_id().map_err(internal_server_error)? {
-        get_username(user_id, &db_pool)
-            .await
-            .map_err(internal_server_error)?
-    } else {
-        return Ok(HttpResponse::SeeOther()
-            .insert_header((LOCATION, "/login"))
-            .finish());
-    };
+    let user_id = user_id.into_inner();
+    let username = get_username(*user_id, &db_pool)
+        .await
+        .map_err(internal_server_error)?;
 
     Ok(HttpResponse::Ok()
         .content_type(ContentType::html())
