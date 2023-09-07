@@ -1,15 +1,12 @@
-use actix_web::{error::InternalError, web, HttpResponse};
+use crate::{
+    authentication::{validate_credentials, AuthError, Credentials, UserId},
+    routes::admin::dashboard::get_username,
+    utils::{internal_server_error, see_other},
+};
+use actix_web::{web, HttpResponse};
 use actix_web_flash_messages::FlashMessage;
 use secrecy::{ExposeSecret, Secret};
 use sqlx::MySqlPool;
-use uuid::Uuid;
-
-use crate::{
-    authentication::{validate_credentials, AuthError, Credentials},
-    routes::admin::dashboard::get_username,
-    session_state::TypedSession,
-    utils::{internal_server_error, see_other},
-};
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
@@ -18,24 +15,12 @@ pub struct FormData {
     new_password_check: Secret<String>,
 }
 
-fn reject_anonymous_users(session: TypedSession) -> Result<Uuid, actix_web::Error> {
-    let user_id = session.get_user_id().map_err(internal_server_error)?;
-    match user_id {
-        Some(id) => Ok(id),
-        _ => {
-            let response = see_other("/login");
-            let e = anyhow::anyhow!("The user has not logged in");
-            Err(InternalError::from_response(e, response).into())
-        }
-    }
-}
-
 pub async fn change_password(
-    session: TypedSession,
     form_data: web::Form<FormData>,
+    user_id: web::ReqData<UserId>,
     db_pool: web::Data<MySqlPool>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let user_id = reject_anonymous_users(session)?;
+    let user_id = user_id.into_inner();
 
     let new_password = form_data.0.new_password.expose_secret();
     if new_password != form_data.0.new_password_check.expose_secret() {
@@ -50,7 +35,7 @@ pub async fn change_password(
         return Ok(see_other("/admin/password"));
     }
 
-    let username = get_username(user_id, &db_pool)
+    let username = get_username(*user_id, &db_pool)
         .await
         .map_err(internal_server_error)?;
 
@@ -69,7 +54,7 @@ pub async fn change_password(
         };
     }
 
-    crate::authentication::change_password(user_id, form_data.0.new_password, &db_pool)
+    crate::authentication::change_password(*user_id, form_data.0.new_password, &db_pool)
         .await
         .map_err(internal_server_error)?;
 
