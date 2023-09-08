@@ -35,16 +35,6 @@ impl TestApp {
             .expect("Failed to send a request")
     }
 
-    pub async fn post_newsletters(&self, body: serde_json::Value) -> reqwest::Response {
-        self.api_client
-            .post(&format!("{}/newsletters", self.address))
-            .basic_auth(&self.test_user.username, Some(&self.test_user.password))
-            .json(&body)
-            .send()
-            .await
-            .expect("Failed to send a request to `/subscriptions` endpoint")
-    }
-
     pub async fn get_login_html(&self) -> String {
         self.api_client
             .get(format!("{}/login", self.address))
@@ -131,6 +121,30 @@ impl TestApp {
             .send()
             .await
             .expect("Failed to send a request to the app")
+    }
+
+    pub async fn post_publish_newsletter<Body>(&self, form_data: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(format!("{}/admin/newsletter", self.address))
+            .form(form_data)
+            .send()
+            .await
+            .expect("Failed to send a request to the app")
+    }
+
+    pub async fn get_publish_newsletter(&self) -> reqwest::Response {
+        self.api_client
+            .get(format!("{}/admin/newsletter", self.address))
+            .send()
+            .await
+            .expect("Failed to send a request to the app")
+    }
+
+    pub async fn get_publish_newsletter_html(&self) -> String {
+        self.get_publish_newsletter().await.text().await.unwrap()
     }
 }
 
