@@ -183,6 +183,17 @@ impl TestUser {
         .await
         .expect("Failed to persist the test user");
     }
+
+    pub async fn login(&self, app: &TestApp) {
+        let response = app
+            .post_login(&serde_json::json!({
+                "username": self.username,
+                "password": self.password,
+            }))
+            .await;
+
+        assert_is_redirect_to(&response, "/admin/dashboard");
+    }
 }
 
 async fn cleanup_database(db_settings: &DatabaseSettings) {

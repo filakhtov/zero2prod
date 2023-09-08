@@ -23,13 +23,7 @@ async fn newsletter_is_not_sent_to_unconfirmed_subscribers() {
     let test_app = spawn_app().await;
     create_unconfirmed_subscriber(&test_app).await;
 
-    let response = test_app
-        .post_login(&serde_json::json!({
-            "username": test_app.test_user.username,
-            "password": test_app.test_user.password,
-        }))
-        .await;
-    assert_is_redirect_to(&response, "/admin/dashboard");
+    test_app.test_user.login(&test_app).await;
 
     wiremock::Mock::given(matchers::any())
         .respond_with(wiremock::ResponseTemplate::new(200))
@@ -55,13 +49,7 @@ async fn newsletter_is_sent_to_confirmed_subscribers() {
     let test_app = spawn_app().await;
     create_confirmed_subscriber(&test_app).await;
 
-    let response = test_app
-        .post_login(&serde_json::json!({
-            "username": test_app.test_user.username,
-            "password": test_app.test_user.password,
-        }))
-        .await;
-    assert_is_redirect_to(&response, "/admin/dashboard");
+    test_app.test_user.login(&test_app).await;
 
     wiremock::Mock::given(matchers::path("/email"))
         .and(matchers::method("POST"))
@@ -88,13 +76,7 @@ async fn newsletter_is_sent_to_confirmed_subscribers() {
 async fn newsletter_not_sent_if_content_is_missing_or_empty() {
     let test_app = spawn_app().await;
 
-    let response = test_app
-        .post_login(&serde_json::json!({
-            "username": test_app.test_user.username,
-            "password": test_app.test_user.password,
-        }))
-        .await;
-    assert_is_redirect_to(&response, "/admin/dashboard");
+    test_app.test_user.login(&test_app).await;
 
     let response = test_app
         .post_publish_newsletter(&serde_json::json!({
@@ -127,13 +109,7 @@ async fn newsletter_not_sent_if_content_is_missing_or_empty() {
 async fn newsletter_not_sent_if_title_is_missing() {
     let test_app = spawn_app().await;
 
-    let response = test_app
-        .post_login(&serde_json::json!({
-            "username": test_app.test_user.username,
-            "password": test_app.test_user.password,
-        }))
-        .await;
-    assert_is_redirect_to(&response, "/admin/dashboard");
+    test_app.test_user.login(&test_app).await;
 
     let response = test_app
         .post_publish_newsletter(&serde_json::json!({

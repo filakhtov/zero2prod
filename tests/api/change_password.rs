@@ -29,13 +29,7 @@ async fn user_must_be_logged_in_to_change_the_password() {
 #[tokio::test]
 async fn new_password_fields_must_match() {
     let test_app = spawn_app().await;
-
-    test_app
-        .post_login(&serde_json::json!({
-            "username": &test_app.test_user.username,
-            "password": &test_app.test_user.password,
-        }))
-        .await;
+    test_app.test_user.login(&test_app).await;
 
     let response = test_app
         .post_change_password(&serde_json::json!({
@@ -56,12 +50,7 @@ async fn new_password_fields_must_match() {
 async fn current_password_must_be_valid() {
     let test_app = spawn_app().await;
 
-    test_app
-        .post_login(&serde_json::json!({
-            "username": &test_app.test_user.username,
-            "password": &test_app.test_user.password,
-        }))
-        .await;
+    test_app.test_user.login(&test_app).await;
 
     let response = test_app
         .post_change_password(&serde_json::json!({
@@ -82,12 +71,7 @@ async fn current_password_must_be_valid() {
 async fn new_password_must_be_at_least_12_characters_long() {
     let test_app = spawn_app().await;
 
-    test_app
-        .post_login(&serde_json::json!({
-            "username": test_app.test_user.username,
-            "password": test_app.test_user.password,
-        }))
-        .await;
+    test_app.test_user.login(&test_app).await;
 
     let response = test_app
         .post_change_password(&serde_json::json!({
@@ -110,12 +94,7 @@ async fn new_password_must_be_at_least_12_characters_long() {
 async fn new_password_must_be_at_most_128_characters_long() {
     let test_app = spawn_app().await;
 
-    test_app
-        .post_login(&serde_json::json!({
-            "username": test_app.test_user.username,
-            "password": test_app.test_user.password,
-        }))
-        .await;
+    test_app.test_user.login(&test_app).await;
 
     let too_long_password = (130..140).fake::<String>();
 
@@ -140,13 +119,7 @@ async fn new_password_must_be_at_most_128_characters_long() {
 async fn password_changing_works() {
     let test_app = spawn_app().await;
 
-    let response = test_app
-        .post_login(&serde_json::json!({
-            "username": test_app.test_user.username,
-            "password": test_app.test_user.password,
-        }))
-        .await;
-    assert_is_redirect_to(&response, "/admin/dashboard");
+    test_app.test_user.login(&test_app).await;
 
     let response = test_app
         .post_change_password(&serde_json::json!({
