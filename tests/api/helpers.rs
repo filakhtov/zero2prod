@@ -175,7 +175,7 @@ impl TestUser {
         .to_string();
         sqlx::query!(
             "INSERT INTO `users` (`id`, `username`, `password_hash`) VALUES (?, ?, ?)",
-            self.user_id.to_string(),
+            self.user_id,
             self.username,
             password_hash,
         )

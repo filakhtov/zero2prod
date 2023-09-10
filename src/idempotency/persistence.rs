@@ -43,7 +43,7 @@ pub async fn get_saved_response(
              FROM `idempotency`
             WHERE `user_id` = ? AND idempotency_key = ?
             LIMIT 1"#,
-        user_id.to_string(),
+        user_id,
         idempotency_key.as_ref(),
     )
     .fetch_optional(db_pool)
@@ -87,7 +87,7 @@ pub async fn save_response(
         status_code,
         headers,
         body.as_ref(),
-        user_id.to_string(),
+        user_id,
         idempotency_key.as_ref(),
     ).execute(&mut transaction).await?;
 
@@ -112,7 +112,7 @@ pub async fn try_processing(
         r#"INSERT IGNORE INTO `idempotency` (
             `user_id`, `idempotency_key`, `created_at`
         ) VALUES (?, ?, CURRENT_TIMESTAMP())"#,
-        user_id.to_string(),
+        user_id,
         idempotency_key.as_ref(),
     )
     .execute(&mut transaction)

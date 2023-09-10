@@ -115,7 +115,7 @@ pub async fn change_password(
          WHERE `id` = ?
         "#,
         password_hash.expose_secret(),
-        user_id.to_string(),
+        user_id,
     )
     .execute(db_pool)
     .await
