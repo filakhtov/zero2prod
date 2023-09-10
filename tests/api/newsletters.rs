@@ -1,7 +1,10 @@
-use std::time::Duration;
-
 use crate::helpers::{assert_is_redirect_to, spawn_app, ConfirmationLinks, TestApp};
+use std::time::Duration;
 use wiremock::{self, matchers};
+
+fn when_sending_an_email() -> wiremock::MockBuilder {
+    wiremock::Mock::given(matchers::path("/email")).and(matchers::method("POST"))
+}
 
 #[tokio::test]
 async fn newsletter_publishing_require_user_to_be_authenticated() {
@@ -56,8 +59,7 @@ async fn newsletter_is_sent_to_confirmed_subscribers() {
 
     test_app.test_user.login(&test_app).await;
 
-    wiremock::Mock::given(matchers::path("/email"))
-        .and(matchers::method("POST"))
+    when_sending_an_email()
         .respond_with(wiremock::ResponseTemplate::new(200))
         .expect(1)
         .mount(&test_app.email_server)
@@ -141,8 +143,7 @@ async fn newsletter_publishing_is_idempotent() {
     create_confirmed_subscriber(&test_app).await;
     test_app.test_user.login(&test_app).await;
 
-    wiremock::Mock::given(matchers::path("/email"))
-        .and(matchers::method("POST"))
+    when_sending_an_email()
         .respond_with(wiremock::ResponseTemplate::new(200))
         .expect(1)
         .mount(&test_app.email_server)
@@ -175,8 +176,7 @@ async fn concurrent_form_submissions_are_handled_idempotently() {
     create_confirmed_subscriber(&test_app).await;
     test_app.test_user.login(&test_app).await;
 
-    wiremock::Mock::given(matchers::path("/email"))
-        .and(matchers::method("POST"))
+    when_sending_an_email()
         .respond_with(wiremock::ResponseTemplate::new(200).set_delay(Duration::from_secs(2)))
         .expect(1)
         .mount(&test_app.email_server)
