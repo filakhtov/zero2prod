@@ -1,6 +1,6 @@
 use super::IdempotencyKey;
 use actix_web::{body::to_bytes, http::StatusCode, HttpResponse};
-use sqlx::{Decode, Encode, MySql, MySqlPool};
+use sqlx::{Decode, Encode, MySql, MySqlPool, Transaction};
 use uuid::Uuid;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -37,7 +37,9 @@ pub async fn get_saved_response(
     user_id: Uuid,
 ) -> Result<Option<HttpResponse>, anyhow::Error> {
     let saved_response = sqlx::query!(
-        r#"SELECT `response_status_code`, `response_headers` as "response_headers: HeaderCollection", `response_body`
+        r#"SELECT `response_status_code` as "response_status_code!",
+                  `response_headers` as "response_headers!: HeaderCollection",
+                  `response_body` as "response_body!"
              FROM `idempotency`
             WHERE `user_id` = ? AND idempotency_key = ?
             LIMIT 1"#,
@@ -61,7 +63,7 @@ pub async fn get_saved_response(
 }
 
 pub async fn save_response(
-    db_pool: &MySqlPool,
+    mut transaction: Transaction<'static, MySql>,
     idempotency_key: &IdempotencyKey,
     user_id: Uuid,
     http_response: HttpResponse,
@@ -80,16 +82,49 @@ pub async fn save_response(
     };
 
     sqlx::query!(
-        r#"INSERT INTO `idempotency` (
-            `user_id`, `idempotency_key`, `response_status_code`, `response_headers`, `response_body`, `created_at`
-        ) VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP())"#,
-        user_id.to_string(),
-        idempotency_key.as_ref(),
+        r#"UPDATE `idempotency` SET `response_status_code`=?, `response_headers`=?, `response_body`=?
+            WHERE `user_id`=? AND `idempotency_key`=?"#,
         status_code,
         headers,
         body.as_ref(),
-    ).execute(db_pool).await?;
+        user_id.to_string(),
+        idempotency_key.as_ref(),
+    ).execute(&mut transaction).await?;
+
+    transaction.commit().await?;
 
     let http_response = response.set_body(body).map_into_boxed_body();
     Ok(http_response)
+}
+
+pub enum NextAction {
+    StartProcessing(Transaction<'static, MySql>),
+    ReturnSavedResponse(HttpResponse),
+}
+
+pub async fn try_processing(
+    db_pool: &MySqlPool,
+    idempotency_key: &IdempotencyKey,
+    user_id: Uuid,
+) -> Result<NextAction, anyhow::Error> {
+    let mut transaction = db_pool.begin().await?;
+    let inserted_rows_count = sqlx::query!(
+        r#"INSERT IGNORE INTO `idempotency` (
+            `user_id`, `idempotency_key`, `created_at`
+        ) VALUES (?, ?, CURRENT_TIMESTAMP())"#,
+        user_id.to_string(),
+        idempotency_key.as_ref(),
+    )
+    .execute(&mut transaction)
+    .await?
+    .rows_affected();
+
+    if inserted_rows_count > 0 {
+        Ok(NextAction::StartProcessing(transaction))
+    } else {
+        let saved_response = get_saved_response(db_pool, idempotency_key, user_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Unable to find a saved response"))?;
+        Ok(NextAction::ReturnSavedResponse(saved_response))
+    }
 }

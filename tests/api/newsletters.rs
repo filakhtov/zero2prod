@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::helpers::{assert_is_redirect_to, spawn_app, ConfirmationLinks, TestApp};
 use wiremock::{self, matchers};
 
@@ -165,6 +167,37 @@ async fn newsletter_publishing_is_idempotent() {
     let html_content = test_app.get_publish_newsletter_html().await;
     assert!(html_content
         .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
+}
+
+#[tokio::test]
+async fn concurrent_form_submissions_are_handled_idempotently() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    wiremock::Mock::given(matchers::path("/email"))
+        .and(matchers::method("POST"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_delay(Duration::from_secs(2)))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let request_body = serde_json::json!({
+        "title": "My concurrent newsletter submission",
+        "html_content": "<p>Things are going to happen <i>in parallel</i> with this HTML</p>",
+        "text_content": "Things are going to happen IN PARALLEL with this text",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+    });
+
+    let response1 = test_app.post_publish_newsletter(&request_body);
+    let response2 = test_app.post_publish_newsletter(&request_body);
+    let (response1, response2) = tokio::join!(response1, response2);
+
+    assert_eq!(response1.status(), response2.status());
+    assert_eq!(
+        response1.text().await.unwrap(),
+        response2.text().await.unwrap(),
+    );
 }
 
 async fn create_unconfirmed_subscriber(test_app: &TestApp) -> ConfirmationLinks {

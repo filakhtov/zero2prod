@@ -2,7 +2,7 @@ use crate::{
     authentication::UserId,
     domain::SubscriberEmail,
     email_client::EmailClient,
-    idempotency::{get_saved_response, save_response, IdempotencyKey},
+    idempotency::{save_response, try_processing, IdempotencyKey, NextAction},
     utils::{bad_request, internal_server_error, see_other},
 };
 use actix_web::{web, HttpResponse};
@@ -38,15 +38,6 @@ pub async fn publish_newsletter(
     } = form.0;
     let idempotency_key: IdempotencyKey = idempotency_key.try_into().map_err(bad_request)?;
 
-    if let Some(saved_response) = get_saved_response(&db_pool, &idempotency_key, *user_id)
-        .await
-        .map_err(internal_server_error)?
-    {
-        FlashMessage::info("The newsletter issues has been published successfully").send();
-
-        return Ok(saved_response);
-    }
-
     if text_content.is_empty() {
         FlashMessage::error("Failed to publish the newsletter: missing text content").send();
 
@@ -64,6 +55,18 @@ pub async fn publish_newsletter(
 
         return Ok(see_other("/admin/newsletter"));
     }
+
+    let transaction = match try_processing(&db_pool, &idempotency_key, *user_id)
+        .await
+        .map_err(internal_server_error)?
+    {
+        NextAction::StartProcessing(transaction) => transaction,
+        NextAction::ReturnSavedResponse(saved_response) => {
+            success_message().send();
+
+            return Ok(saved_response);
+        }
+    };
 
     let subscribers = get_confirmed_subscribers(&db_pool)
         .await
@@ -86,14 +89,18 @@ pub async fn publish_newsletter(
         }
     }
 
-    FlashMessage::info("The newsletter issues has been published successfully").send();
+    success_message().send();
 
     let response = see_other("/admin/newsletter");
-    let response = save_response(&db_pool, &idempotency_key, *user_id, response)
+    let response = save_response(transaction, &idempotency_key, *user_id, response)
         .await
         .map_err(internal_server_error)?;
 
     Ok(response)
+}
+
+fn success_message() -> FlashMessage {
+    FlashMessage::info("The newsletter issues has been published successfully")
 }
 
 #[tracing::instrument(name = "Get a list of confirmed subscribers", skip(pool))]
