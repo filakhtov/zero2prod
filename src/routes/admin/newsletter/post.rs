@@ -2,7 +2,8 @@ use crate::{
     authentication::UserId,
     domain::SubscriberEmail,
     email_client::EmailClient,
-    utils::{internal_server_error, see_other},
+    idempotency::{get_saved_response, save_response, IdempotencyKey},
+    utils::{bad_request, internal_server_error, see_other},
 };
 use actix_web::{web, HttpResponse};
 use actix_web_flash_messages::FlashMessage;
@@ -10,76 +11,89 @@ use anyhow::Context;
 use sqlx::MySqlPool;
 
 #[derive(serde::Deserialize)]
-pub struct BodyData {
+pub struct FormData {
     title: String,
     text_content: String,
     html_content: String,
+    idempotency_key: String,
 }
 
 struct ConfirmedSubscriber {
     email: SubscriberEmail,
 }
 
-#[tracing::instrument(name = "Publish a newsletter", skip(body, pool, email_client))]
+#[tracing::instrument(name = "Publish a newsletter", skip(form, db_pool, email_client))]
 pub async fn publish_newsletter(
-    pool: web::Data<MySqlPool>,
-    body: web::Form<BodyData>,
+    db_pool: web::Data<MySqlPool>,
+    form: web::Form<FormData>,
     email_client: web::Data<EmailClient>,
     user_id: web::ReqData<UserId>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    if body.text_content.is_empty() {
+    let user_id = user_id.into_inner();
+    let FormData {
+        title,
+        text_content,
+        html_content,
+        idempotency_key,
+    } = form.0;
+    let idempotency_key: IdempotencyKey = idempotency_key.try_into().map_err(bad_request)?;
+
+    if let Some(saved_response) = get_saved_response(&db_pool, &idempotency_key, *user_id)
+        .await
+        .map_err(internal_server_error)?
+    {
+        FlashMessage::info("The newsletter issues has been published successfully").send();
+
+        return Ok(saved_response);
+    }
+
+    if text_content.is_empty() {
         FlashMessage::error("Failed to publish the newsletter: missing text content").send();
 
         return Ok(see_other("/admin/newsletter"));
     }
 
-    if body.html_content.is_empty() {
+    if html_content.is_empty() {
         FlashMessage::error("Failed to publish the newsletter: missing HTML content").send();
 
         return Ok(see_other("/admin/newsletter"));
     }
 
-    if body.title.is_empty() {
+    if title.is_empty() {
         FlashMessage::error("Failed to publish the newsletter: missing newsletter title").send();
 
         return Ok(see_other("/admin/newsletter"));
     }
 
-    let mut count = 0;
-    let subscribers = get_confirmed_subscribers(&pool)
+    let subscribers = get_confirmed_subscribers(&db_pool)
         .await
         .map_err(internal_server_error)?;
     for subscriber in subscribers {
         match subscriber {
             Ok(subscriber) => {
                 email_client
-                    .send_email(
-                        &subscriber.email,
-                        &body.title,
-                        &body.html_content,
-                        &body.text_content,
-                    )
+                    .send_email(&subscriber.email, &title, &html_content, &text_content)
                     .await
                     .with_context(|| {
                         format!("Failed to send a newseletter issue to {}", subscriber.email)
                     })
                     .map_err(internal_server_error)?;
-
-                count += 1;
             }
             Err(error) => {
                 tracing::warn!(error.cause_chain = ?error, "Skipping a confirmed subscriber. \
-            Their stored email address is invalid.");
+                Their stored email address is invalid.");
             }
         }
     }
 
-    FlashMessage::info(format!(
-        "Newsletter successfully sent to {count} subscriber(s)"
-    ))
-    .send();
+    FlashMessage::info("The newsletter issues has been published successfully").send();
 
-    Ok(see_other("/admin/newsletter"))
+    let response = see_other("/admin/newsletter");
+    let response = save_response(&db_pool, &idempotency_key, *user_id, response)
+        .await
+        .map_err(internal_server_error)?;
+
+    Ok(response)
 }
 
 #[tracing::instrument(name = "Get a list of confirmed subscribers", skip(pool))]

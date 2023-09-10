@@ -13,6 +13,7 @@ async fn newsletter_publishing_require_user_to_be_authenticated() {
             "title": "Amazing neswletter",
             "text_content": "This is a newsletter body",
             "html_content": "<p>This is a newsletter body</p>",
+            "idempotency_key": uuid::Uuid::new_v4().to_string(),
         }))
         .await;
     assert_is_redirect_to(&response, "/login");
@@ -36,12 +37,14 @@ async fn newsletter_is_not_sent_to_unconfirmed_subscribers() {
             "title": "Newsletter title",
             "text_content": "Newsletter body as plain text",
             "html_content": "<p>Newsletter body as HTML</p>",
+            "idempotency_key": uuid::Uuid::new_v4().to_string(),
         }))
         .await;
     assert_is_redirect_to(&response, "/admin/newsletter");
 
     let html_content = test_app.get_publish_newsletter_html().await;
-    assert!(html_content.contains("<p><i>Newsletter successfully sent to 0 subscriber(s)</i></p>"));
+    assert!(html_content
+        .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
 }
 
 #[tokio::test]
@@ -63,13 +66,15 @@ async fn newsletter_is_sent_to_confirmed_subscribers() {
             "title": "Newsletter title",
             "text_content": "Newsletter body as a plain text",
             "html_content": "<p>Newsletter body as HTML</p>",
+            "idempotency_key": uuid::Uuid::new_v4().to_string(),
         }))
         .await;
 
     assert_is_redirect_to(&response, "/admin/newsletter");
 
     let html_content = test_app.get_publish_newsletter_html().await;
-    assert!(html_content.contains("<p><i>Newsletter successfully sent to 1 subscriber(s)</i></p>"));
+    assert!(html_content
+        .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
 }
 
 #[tokio::test]
@@ -83,6 +88,7 @@ async fn newsletter_not_sent_if_content_is_missing_or_empty() {
             "title": "Newsletter title",
             "html_content": "<p>Newsletter body as HTML</p>",
             "text_content": "",
+            "idempotency_key": uuid::Uuid::new_v4().to_string(),
         }))
         .await;
     assert_is_redirect_to(&response, "/admin/newsletter");
@@ -96,6 +102,7 @@ async fn newsletter_not_sent_if_content_is_missing_or_empty() {
             "title": "Newsletter title",
             "text_content": "Newsletter body as plain text",
             "html_content": "",
+            "idempotency_key": uuid::Uuid::new_v4().to_string(),
         }))
         .await;
     assert_is_redirect_to(&response, "/admin/newsletter");
@@ -116,6 +123,7 @@ async fn newsletter_not_sent_if_title_is_missing() {
             "title": "",
             "html_content": "<p>Newsletter body as HTML</p>",
             "text_content": "Newsletter body as plain text",
+            "idempotency_key": uuid::Uuid::new_v4().to_string(),
         }))
         .await;
     assert_is_redirect_to(&response, "/admin/newsletter");
@@ -123,6 +131,40 @@ async fn newsletter_not_sent_if_title_is_missing() {
     let html_content = test_app.get_publish_newsletter_html().await;
     assert!(html_content
         .contains("<p><i>Failed to publish the newsletter: missing newsletter title</i></p>"));
+}
+
+#[tokio::test]
+async fn newsletter_publishing_is_idempotent() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    wiremock::Mock::given(matchers::path("/email"))
+        .and(matchers::method("POST"))
+        .respond_with(wiremock::ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let request_body = serde_json::json!({
+        "title": "My next newsletter",
+        "html_content": "<p>This is yet another HTML email</p>",
+        "text_content": "This is yet another text email",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+    });
+    let response = test_app.post_publish_newsletter(&request_body).await;
+    assert_is_redirect_to(&response, "/admin/newsletter");
+
+    let html_content = test_app.get_publish_newsletter_html().await;
+    assert!(html_content
+        .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
+
+    let response = test_app.post_publish_newsletter(&request_body).await;
+    assert_is_redirect_to(&response, "/admin/newsletter");
+
+    let html_content = test_app.get_publish_newsletter_html().await;
+    assert!(html_content
+        .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
 }
 
 async fn create_unconfirmed_subscriber(test_app: &TestApp) -> ConfirmationLinks {

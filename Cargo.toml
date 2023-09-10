@@ -28,6 +28,7 @@ rand = { version = "0.8", features = ["std_rng"] }
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "cookies"] }
 secrecy = { version = "0.8", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 sqlx = { version = "0.6", default-features = false, features = [
     "runtime-tokio-rustls",
     "macros",
@@ -53,5 +54,4 @@ fake = "~2.3"
 linkify = "0.9"
 quickcheck = "0.9.2"
 quickcheck_macros = "0.9.1"
-serde_json = "1"
 wiremock = "0.5"

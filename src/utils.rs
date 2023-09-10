@@ -15,3 +15,10 @@ where
         .append_header((LOCATION, location.as_ref()))
         .finish()
 }
+
+pub fn bad_request<T>(error: T) -> actix_web::Error
+where
+    T: std::fmt::Debug + std::fmt::Display + 'static,
+{
+    actix_web::error::ErrorBadRequest(error)
+}
