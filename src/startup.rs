@@ -39,18 +39,8 @@ impl Application {
         );
         let listener = TcpListener::bind(address)?;
         let port = listener.local_addr().unwrap().port();
-        let timeout = configuration.email.timeout();
 
-        let sender_email = configuration
-            .email
-            .sender()
-            .expect("Invalid sender email address");
-        let email_client = EmailClient::new(
-            configuration.email.base_url,
-            sender_email,
-            configuration.email.authorization_token,
-            timeout,
-        );
+        let email_client = configuration.email.client();
 
         let server = run(
             listener,

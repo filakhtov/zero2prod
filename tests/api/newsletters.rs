@@ -1,4 +1,8 @@
 use crate::helpers::{assert_is_redirect_to, spawn_app, ConfirmationLinks, TestApp};
+use fake::{
+    faker::{internet::en::SafeEmail, name::en::Name},
+    Fake,
+};
 use std::time::Duration;
 use wiremock::{self, matchers};
 
@@ -48,8 +52,12 @@ async fn newsletter_is_not_sent_to_unconfirmed_subscribers() {
     assert_is_redirect_to(&response, "/admin/newsletter");
 
     let html_content = test_app.get_publish_newsletter_html().await;
-    assert!(html_content
-        .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
+    assert!(html_content.contains(
+        "<p><i>The newsletter issues has been accepted \
+        and emails will be sent out shortly</i></p>",
+    ));
+
+    test_app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
@@ -77,8 +85,12 @@ async fn newsletter_is_sent_to_confirmed_subscribers() {
     assert_is_redirect_to(&response, "/admin/newsletter");
 
     let html_content = test_app.get_publish_newsletter_html().await;
-    assert!(html_content
-        .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
+    assert!(html_content.contains(
+        "<p><i>The newsletter issues has been accepted \
+        and emails will be sent out shortly</i></p>",
+    ));
+
+    test_app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
@@ -159,15 +171,23 @@ async fn newsletter_publishing_is_idempotent() {
     assert_is_redirect_to(&response, "/admin/newsletter");
 
     let html_content = test_app.get_publish_newsletter_html().await;
-    assert!(html_content
-        .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
+    assert!(html_content.contains(
+        "<p><i>The newsletter issues has been accepted \
+        and emails will be sent out shortly</i></p>",
+    ));
+
+    test_app.dispatch_all_pending_emails().await;
 
     let response = test_app.post_publish_newsletter(&request_body).await;
     assert_is_redirect_to(&response, "/admin/newsletter");
 
     let html_content = test_app.get_publish_newsletter_html().await;
-    assert!(html_content
-        .contains("<p><i>The newsletter issues has been published successfully</i></p>"));
+    assert!(html_content.contains(
+        "<p><i>The newsletter issues has been accepted \
+        and emails will be sent out shortly</i></p>",
+    ));
+
+    test_app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
@@ -198,10 +218,18 @@ async fn concurrent_form_submissions_are_handled_idempotently() {
         response1.text().await.unwrap(),
         response2.text().await.unwrap(),
     );
+
+    test_app.dispatch_all_pending_emails().await;
 }
 
 async fn create_unconfirmed_subscriber(test_app: &TestApp) -> ConfirmationLinks {
-    let body = "name=Joseph%20Stutgart&email=jstutgart@example.com";
+    let name: String = Name().fake();
+    let email: String = SafeEmail().fake();
+    let body = serde_urlencoded::to_string(serde_json::json!({
+        "name": name,
+        "email": email
+    }))
+    .unwrap();
 
     let _mock_guard = wiremock::Mock::given(matchers::path("/email"))
         .and(matchers::method("POST"))
@@ -212,7 +240,7 @@ async fn create_unconfirmed_subscriber(test_app: &TestApp) -> ConfirmationLinks 
         .await;
 
     test_app
-        .post_subscriptions(body.into())
+        .post_subscriptions(body)
         .await
         .error_for_status()
         .unwrap();

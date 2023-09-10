@@ -1,7 +1,5 @@
 use crate::{
     authentication::UserId,
-    domain::SubscriberEmail,
-    email_client::EmailClient,
     idempotency::{save_response, try_processing, IdempotencyKey, NextAction},
     utils::{bad_request, internal_server_error, see_other},
 };
@@ -18,15 +16,14 @@ pub struct FormData {
     idempotency_key: String,
 }
 
-struct ConfirmedSubscriber {
-    email: SubscriberEmail,
-}
-
-#[tracing::instrument(name = "Publish a newsletter", skip(form, db_pool, email_client))]
+#[tracing::instrument(
+    name = "Publish a newsletter issue",
+    skip_all,
+    fields(user_id=%&*user_id)
+)]
 pub async fn publish_newsletter(
     db_pool: web::Data<MySqlPool>,
     form: web::Form<FormData>,
-    email_client: web::Data<EmailClient>,
     user_id: web::ReqData<UserId>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let user_id = user_id.into_inner();
@@ -56,7 +53,7 @@ pub async fn publish_newsletter(
         return Ok(see_other("/admin/newsletter"));
     }
 
-    let transaction = match try_processing(&db_pool, &idempotency_key, *user_id)
+    let mut transaction = match try_processing(&db_pool, &idempotency_key, *user_id)
         .await
         .map_err(internal_server_error)?
     {
@@ -68,62 +65,69 @@ pub async fn publish_newsletter(
         }
     };
 
-    let subscribers = get_confirmed_subscribers(&db_pool)
+    let issue_id = insert_newsletter_issue(&mut transaction, &title, &text_content, &html_content)
         .await
+        .context("Failed to store newletter issue details")
         .map_err(internal_server_error)?;
-    for subscriber in subscribers {
-        match subscriber {
-            Ok(subscriber) => {
-                email_client
-                    .send_email(&subscriber.email, &title, &html_content, &text_content)
-                    .await
-                    .with_context(|| {
-                        format!("Failed to send a newseletter issue to {}", subscriber.email)
-                    })
-                    .map_err(internal_server_error)?;
-            }
-            Err(error) => {
-                tracing::warn!(error.cause_chain = ?error, "Skipping a confirmed subscriber. \
-                Their stored email address is invalid.");
-            }
-        }
-    }
-
-    success_message().send();
+    enqueue_delivery_task(&mut transaction, issue_id)
+        .await
+        .context("Failed to enqueue delivery tasks")
+        .map_err(internal_server_error)?;
 
     let response = see_other("/admin/newsletter");
     let response = save_response(transaction, &idempotency_key, *user_id, response)
         .await
         .map_err(internal_server_error)?;
 
+    success_message().send();
+
     Ok(response)
 }
 
 fn success_message() -> FlashMessage {
-    FlashMessage::info("The newsletter issues has been published successfully")
+    FlashMessage::info(
+        "The newsletter issues has been accepted \
+        and emails will be sent out shortly",
+    )
 }
 
-#[tracing::instrument(name = "Get a list of confirmed subscribers", skip(pool))]
-async fn get_confirmed_subscribers(
-    pool: &MySqlPool,
-) -> Result<Vec<Result<ConfirmedSubscriber, anyhow::Error>>, anyhow::Error> {
-    let rows = sqlx::query!(
-        r#"
-            SELECT `email`
-            FROM `subscriptions`
-            WHERE `status`="confirmed"
-        "#,
+#[tracing::instrument(skip_all)]
+async fn insert_newsletter_issue(
+    transaction: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    title: &str,
+    text_content: &str,
+    html_content: &str,
+) -> Result<uuid::Uuid, sqlx::Error> {
+    let newsletter_issue_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"INSERT INTO `newsletter_issues` (
+            `newsletter_issue_id`, `title`, `text_content`, `html_content`, `published_at`
+        ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP())"#,
+        newsletter_issue_id,
+        title,
+        text_content,
+        html_content,
     )
-    .fetch_all(pool)
+    .execute(transaction)
     .await?;
 
-    let confirmed_subscribers = rows
-        .into_iter()
-        .map(|row| match SubscriberEmail::parse(&row.email) {
-            Ok(email) => Ok(ConfirmedSubscriber { email }),
-            Err(error) => Err(anyhow::anyhow!(error)),
-        })
-        .collect();
+    Ok(newsletter_issue_id)
+}
 
-    Ok(confirmed_subscribers)
+#[tracing::instrument(skip_all)]
+async fn enqueue_delivery_task(
+    transaction: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    newsletter_issue_id: uuid::Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"INSERT INTO `issue_delivery_queue` (
+            `newsletter_issue_id`, `subscriber_email`
+        ) SELECT ?, `email` FROM `subscriptions`
+           WHERE `status`="confirmed""#,
+        newsletter_issue_id,
+    )
+    .execute(transaction)
+    .await?;
+
+    Ok(())
 }
